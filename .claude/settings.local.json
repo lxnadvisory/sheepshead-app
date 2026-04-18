@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs:/c/Users/jalec/AppData/Roaming/npm\")",
+      "Bash(npm --version)"
+    ]
+  }
+}

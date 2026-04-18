@@ -132,14 +132,17 @@ export function useStore() {
         // 1. Migrate local IDs to UUID format so they can be stored in Supabase
         const local = ensureUUIDs(stateRef.current)
         if (local !== stateRef.current) {
+          console.log('[Supabase] Migrated local IDs to UUID format')
           update(() => local)
         }
 
         // 2. Load from Supabase
+        console.log('[Supabase] Loading players and sessions...')
         const [dbPlayers, dbSessions] = await Promise.all([
           db.getPlayers(),
           db.getSessions(),
         ])
+        console.log(`[Supabase] Found ${dbPlayers.length} players, ${dbSessions.length} sessions in DB`)
 
         // 3. Load hands for each session
         const sessionsWithHands = await Promise.all(
@@ -153,15 +156,31 @@ export function useStore() {
           // Supabase has data — use it as the source of truth
           const players = dbPlayers.length > 0 ? dbPlayers : local.players
           update(() => ({ players, sessions: sessionsWithHands }))
+          console.log('[Supabase] State hydrated from DB')
         } else {
-          // Supabase is empty — push local data to Supabase (first-time sync)
-          for (const player of local.players) {
-            db.savePlayer(player).catch(console.error)
-          }
+          // Supabase is empty — push all localStorage data up (first-time sync)
+          console.log(`[Supabase] DB empty — pushing ${local.players.length} players and ${local.sessions.length} sessions from localStorage`)
+
+          const playerResults = await Promise.allSettled(
+            local.players.map(p => db.savePlayer(p))
+          )
+          const playerOk  = playerResults.filter(r => r.status === 'fulfilled').length
+          const playerErr = playerResults.filter(r => r.status === 'rejected')
+          playerErr.forEach(r => console.error('[Supabase] savePlayer failed:', r.reason))
+          console.log(`[Supabase] Migrated ${playerOk}/${local.players.length} players to Supabase`)
+
           for (const session of local.sessions) {
-            db.createSession(session).catch(console.error)
-            for (const hand of session.hands) {
-              db.addHand(hand, session.id, session.players).catch(console.error)
+            try {
+              await db.createSession(session)
+              const handResults = await Promise.allSettled(
+                session.hands.map(h => db.addHand(h, session.id, session.players))
+              )
+              const handOk  = handResults.filter(r => r.status === 'fulfilled').length
+              const handErr = handResults.filter(r => r.status === 'rejected')
+              handErr.forEach(r => console.error('[Supabase] addHand failed:', r.reason))
+              console.log(`[Supabase] Migrated session ${session.id.slice(0, 8)}… with ${handOk}/${session.hands.length} hands`)
+            } catch (err) {
+              console.error('[Supabase] createSession failed:', err)
             }
           }
         }
@@ -231,7 +250,9 @@ export function useStore() {
           })
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('[Supabase] Real-time subscription status:', status)
+      })
 
     return () => supabase.removeChannel(channel)
   }, []) // once on mount

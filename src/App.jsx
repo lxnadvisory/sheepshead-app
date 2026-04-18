@@ -27,6 +27,7 @@ export default function App() {
 
   const store = useStore()
   const activeSession = store.getActiveSession()
+  const { isLoading, syncError } = store
 
   // Close settings on outside click
   useEffect(() => {
@@ -93,6 +94,31 @@ export default function App() {
             <span className="badge badge-success">
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
               Live
+            </span>
+          )}
+
+          {isLoading && (
+            <span style={{
+              fontSize: 11, color: 'var(--text-muted)', display: 'flex',
+              alignItems: 'center', gap: 5, letterSpacing: '0.02em',
+            }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: '50%',
+                border: '2px solid var(--border)',
+                borderTopColor: 'var(--primary)',
+                display: 'inline-block',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              Syncing
+            </span>
+          )}
+
+          {!isLoading && syncError && (
+            <span
+              title={syncError}
+              style={{ fontSize: 12, color: 'var(--warning)', cursor: 'default' }}
+            >
+              ⚠ Offline
             </span>
           )}
 

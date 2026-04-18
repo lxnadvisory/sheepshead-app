@@ -331,6 +331,10 @@ select option { background: var(--bg-elevated); }
   to   { transform: translateX(0); }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes toastFade {
   0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   12%  { opacity: 1; transform: translateX(-50%) translateY(0); }

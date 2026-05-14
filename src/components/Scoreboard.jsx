@@ -13,7 +13,7 @@ const ROW_H        = 44
 const HEADER_H     = 64
 const MAX_H        = HEADER_H + VISIBLE_ROWS * ROW_H  // 284px
 
-export default function Scoreboard({ players, getPlayer, getDisplayName, hands, totals, dealerPid, onHandClick }) {
+export default function Scoreboard({ players, getPlayer, getDisplayName, hands, totals, dealerPid, leftPlayers = [], onHandClick, onEditHand }) {
   const scrollRef = useRef(null)
 
   // Auto-scroll to the bottom (most recent hand) whenever a new hand is added
@@ -38,20 +38,30 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
           <tr>
             <th style={thStyle()}>Hnd</th>
             {players.map(pid => {
-              const p = getPlayer(pid)
+              const p        = getPlayer(pid)
               const isDealer = pid === dealerPid
+              const isLeft   = leftPlayers.includes(pid)
               return (
-                <th key={pid} style={thStyle()}>
+                <th key={pid} style={{ ...thStyle(), opacity: isLeft ? 0.45 : 1 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                     <Avatar player={p} size={26} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <span>{getDisplayName ? getDisplayName(pid) : (p?.firstName ?? p?.name ?? pid)}</span>
-                      {isDealer && (
+                      <span style={{ color: isLeft ? 'var(--text-muted)' : undefined }}>
+                        {getDisplayName ? getDisplayName(pid) : (p?.firstName ?? p?.name ?? pid)}
+                      </span>
+                      {isDealer && !isLeft && (
                         <span style={{
                           fontSize: 9, fontWeight: 800, padding: '1px 4px',
                           background: 'rgba(245,158,11,0.2)', color: 'var(--warning)',
                           borderRadius: 4, letterSpacing: '0.02em',
                         }}>D</span>
+                      )}
+                      {isLeft && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 800, padding: '1px 4px',
+                          background: 'rgba(239,68,68,0.15)', color: 'var(--danger)',
+                          borderRadius: 4, letterSpacing: '0.02em',
+                        }}>Left</span>
                       )}
                     </div>
                   </div>
@@ -65,19 +75,31 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
             <tr key={hand.id} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={tdStyle(true)}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  {/* Clickable hand number */}
-                  <span
-                    onClick={() => onHandClick?.(hand.id)}
-                    style={{
-                      fontWeight: 700,
-                      color: onHandClick ? 'var(--primary)' : 'var(--text-secondary)',
-                      cursor: onHandClick ? 'pointer' : 'default',
-                      textDecoration: onHandClick ? 'underline' : 'none',
-                      textDecorationStyle: 'dotted',
-                    }}
-                  >
-                    {hand.handNumber}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <span
+                      onClick={() => onHandClick?.(hand.id)}
+                      style={{
+                        fontWeight: 700,
+                        color: onHandClick ? 'var(--primary)' : 'var(--text-secondary)',
+                        cursor: onHandClick ? 'pointer' : 'default',
+                        textDecoration: onHandClick ? 'underline' : 'none',
+                        textDecorationStyle: 'dotted',
+                      }}
+                    >
+                      {hand.handNumber}
+                    </span>
+                    {onEditHand && (
+                      <button
+                        onClick={() => onEditHand(hand.id)}
+                        title="Edit hand"
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--text-muted)', fontSize: 11, lineHeight: 1,
+                          padding: '1px 3px', borderRadius: 3, opacity: 0.65,
+                        }}
+                      >✎</button>
+                    )}
+                  </div>
                   {handBadge(hand)}
                   {/* Card points — no suffix, prominent */}
                   {hand.pickerPoints != null && (
@@ -88,14 +110,15 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
                 </div>
               </td>
               {players.map(pid => {
-                const delta = hand.scores?.[pid] ?? 0
-                const isKey = pid === hand.picker || (!hand.isLoner && pid === hand.partner)
-                const isSit = pid === hand.dealerPid
+                const delta  = hand.scores?.[pid] ?? 0
+                const isKey  = pid === hand.picker || (!hand.isLoner && pid === hand.partner)
+                const isSit  = pid === hand.dealerPid
+                const isLeft = leftPlayers.includes(pid)
                 return (
                   <td key={pid} style={{
                     ...tdStyle(false),
-                    background: isKey ? 'rgba(99,102,241,0.04)' : undefined,
-                    opacity: isSit ? 0.35 : 1,
+                    background: isKey && !isLeft ? 'rgba(99,102,241,0.04)' : undefined,
+                    opacity: isSit || isLeft ? 0.35 : 1,
                   }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                       {fmt(delta)}

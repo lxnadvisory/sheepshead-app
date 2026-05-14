@@ -197,8 +197,12 @@ export default function App() {
           addHand={store.addHand}
           updateHand={store.updateHand}
           deleteHand={store.deleteHand}
+          insertHandAt={store.insertHandAt}
           activateLastRound={store.activateLastRound}
           addSessionPlayer={store.addSessionPlayer}
+          insertSessionPlayer={store.insertSessionPlayer}
+          markPlayerLeft={store.markPlayerLeft}
+          reorderSessionPlayers={store.reorderSessionPlayers}
           getPlayer={store.getPlayer}
           getDisplayName={store.getDisplayName}
           getActiveSession={store.getActiveSession}

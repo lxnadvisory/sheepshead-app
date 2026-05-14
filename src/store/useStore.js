@@ -35,8 +35,21 @@ function migrateSessions(sessions) {
   return sessions.map(s => ({
     dealerIndex: 0,
     lastRoundRemaining: 0,
+    leftPlayers: [],
     ...s,
   }))
+}
+
+// ── Dealer rotation helpers ───────────────────────────────────────────────────
+// Returns the index of the next active (non-left) player after fromIdx.
+function nextActiveDealerIndex(players, leftPlayers, fromIdx) {
+  const n = players.length
+  if (n === 0) return 0
+  for (let i = 1; i <= n; i++) {
+    const next = (fromIdx + i) % n
+    if (!leftPlayers.includes(players[next])) return next
+  }
+  return (fromIdx + 1) % n
 }
 
 // ── UUID migration ────────────────────────────────────────────────────────────
@@ -153,12 +166,39 @@ export function useStore() {
         )
 
         if (dbPlayers.length > 0 || sessionsWithHands.length > 0) {
-          // Supabase has data — use it as the source of truth
+          // Supabase has data — always use it as the source of truth.
+          // Never overwrite with local state on load.
           const players = dbPlayers.length > 0 ? dbPlayers : local.players
+
+          // Warn if local has sessions with hands that are absent from Supabase.
+          // This can happen when a device was offline during a game and its local
+          // history diverged. Supabase wins; local-only sessions are discarded.
+          const dbSessionIds = new Set(sessionsWithHands.map(s => s.id))
+          const orphaned     = local.sessions.filter(s => (s.hands?.length ?? 0) > 0 && !dbSessionIds.has(s.id))
+          if (orphaned.length > 0) {
+            console.warn(
+              `[Supabase] Conflict: ${orphaned.length} local session(s) with hand data not found in Supabase — ` +
+              `Supabase wins, local-only data discarded.`,
+              orphaned.map(s => ({ id: s.id, hands: s.hands.length, date: s.date }))
+            )
+          }
+
           update(() => ({ players, sessions: sessionsWithHands }))
           console.log('[Supabase] State hydrated from DB')
         } else {
-          // Supabase is empty — push all localStorage data up (first-time sync)
+          // Supabase returned empty. Guard against pushing default/blank state:
+          // only proceed if local actually has sessions with hands logged.
+          // A fresh device (or one where Supabase silently returned nothing due to
+          // RLS / network) should never push DEFAULT_PLAYERS or empty sessions,
+          // as that would clobber data another device may have just written.
+          const localSessionsWithHands = local.sessions.filter(s => (s.hands?.length ?? 0) > 0)
+
+          if (localSessionsWithHands.length === 0) {
+            console.log('[Supabase] Supabase empty and no local game data — skipping push to avoid overwriting with defaults')
+            return  // stay local-only; nothing meaningful to sync
+          }
+
+          // First-time sync: local has genuine game history that Supabase doesn't have yet.
           console.log(`[Supabase] DB empty — pushing ${local.players.length} players and ${local.sessions.length} sessions from localStorage`)
 
           const playerResults = await Promise.allSettled(
@@ -329,11 +369,16 @@ export function useStore() {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
     if (!sess) return
 
+    const leftPlayers     = sess.leftPlayers ?? []
+    const activeSeatOrder = sess.players.filter(p => !leftPlayers.includes(p))
+    const activeCount     = activeSeatOrder.length
+    const is6Player       = activeCount === 6
+
     const handNumber  = sess.hands.length + 1
-    const numPlayers  = sess.players.length
-    const dealerPid   = sess.players[sess.dealerIndex] ?? null
+    const rawDealerPid = sess.players[sess.dealerIndex] ?? null
+    const dealerPid   = is6Player ? rawDealerPid : null
     const lastRound   = (sess.lastRoundRemaining ?? 0) > 0
-    const nextDealer  = (sess.dealerIndex + 1) % numPlayers
+    const nextDealer  = nextActiveDealerIndex(sess.players, leftPlayers, sess.dealerIndex)
     const nextLR      = lastRound ? Math.max(0, (sess.lastRoundRemaining ?? 0) - 1) : 0
 
     const fullHand = {
@@ -341,7 +386,7 @@ export function useStore() {
       id:        crypto.randomUUID(),
       handNumber,
       lastRound,
-      dealerPid: numPlayers === 6 ? dealerPid : null,
+      dealerPid,
     }
 
     update(s => ({
@@ -407,18 +452,20 @@ export function useStore() {
     if (hasSupabase) db.deleteHand(handId).catch(console.error)
   }, [update])
 
-  /** Start the Last Round countdown (5 or 6 hands based on player count). */
+  /** Start the Last Round countdown (one hand per active player). */
   const activateLastRound = useCallback((sessionId) => {
     update(s => ({
       ...s,
       sessions: s.sessions.map(sess => {
         if (sess.id !== sessionId || (sess.lastRoundRemaining ?? 0) > 0) return sess
-        return { ...sess, lastRoundRemaining: sess.players.length }
+        const leftPlayers = sess.leftPlayers ?? []
+        const activeCount = sess.players.filter(p => !leftPlayers.includes(p)).length
+        return { ...sess, lastRoundRemaining: activeCount }
       }),
     }))
   }, [update])
 
-  /** Add a player from the roster to an active session (up to 6). */
+  /** Append a player from the roster to an active session (up to 6 total). */
   const addSessionPlayer = useCallback((sessionId, playerId) => {
     update(s => ({
       ...s,
@@ -433,6 +480,108 @@ export function useStore() {
       if (sess && !sess.players.includes(playerId) && sess.players.length < 6) {
         db.updateSession(sessionId, { players: [...sess.players, playerId] }).catch(console.error)
       }
+    }
+  }, [update])
+
+  /** Insert a roster player at a specific seat position (up to 6 total). */
+  const insertSessionPlayer = useCallback((sessionId, playerId, seatIndex) => {
+    const sess = stateRef.current.sessions.find(s => s.id === sessionId)
+    if (!sess || sess.players.includes(playerId) || sess.players.length >= 6) return
+
+    const newPlayers = [
+      ...sess.players.slice(0, seatIndex),
+      playerId,
+      ...sess.players.slice(seatIndex),
+    ]
+    // Shift dealerIndex when insertion lands before the current dealer's slot
+    const newDealerIndex = seatIndex <= sess.dealerIndex
+      ? sess.dealerIndex + 1
+      : sess.dealerIndex
+
+    update(s => ({
+      ...s,
+      sessions: s.sessions.map(session => {
+        if (session.id !== sessionId) return session
+        return { ...session, players: newPlayers, dealerIndex: newDealerIndex }
+      }),
+    }))
+    if (hasSupabase) {
+      db.updateSession(sessionId, { players: newPlayers }).catch(console.error)
+    }
+  }, [update])
+
+  /** Mark a player as having left the session. Their column/history is preserved. */
+  const markPlayerLeft = useCallback((sessionId, playerId) => {
+    const sess = stateRef.current.sessions.find(s => s.id === sessionId)
+    if (!sess || (sess.leftPlayers ?? []).includes(playerId)) return
+
+    const leftPlayers = [...(sess.leftPlayers ?? []), playerId]
+
+    // If the departing player is the current dealer, advance to the next active player
+    let dealerIndex = sess.dealerIndex
+    if (sess.players[dealerIndex] === playerId) {
+      dealerIndex = nextActiveDealerIndex(sess.players, leftPlayers, dealerIndex)
+    }
+
+    update(s => ({
+      ...s,
+      sessions: s.sessions.map(session => {
+        if (session.id !== sessionId) return session
+        return { ...session, leftPlayers, dealerIndex }
+      }),
+    }))
+    // leftPlayers is stored in localStorage only; no matching column in current Supabase schema
+  }, [update])
+
+  /** Insert a hand at a specific position in the hand history. Renumbers subsequent hands. */
+  const insertHandAt = useCallback((sessionId, handCore, afterHandNumber) => {
+    const sess = stateRef.current.sessions.find(s => s.id === sessionId)
+    if (!sess) return
+
+    // afterHandNumber === 0: insert before hand #1; afterHandNumber === N: insert after hand #N
+    const insertIdx = afterHandNumber
+
+    const newHand = { ...handCore, id: crypto.randomUUID(), handNumber: afterHandNumber + 1 }
+    const before  = sess.hands.slice(0, insertIdx)
+    const after   = sess.hands.slice(insertIdx)
+    const renumberedAfter = after.map((h, i) => ({ ...h, handNumber: afterHandNumber + 2 + i }))
+    const newHands = [...before, newHand, ...renumberedAfter]
+
+    update(s => ({
+      ...s,
+      sessions: s.sessions.map(session => {
+        if (session.id !== sessionId) return session
+        return { ...session, hands: newHands }
+      }),
+    }))
+
+    if (hasSupabase) {
+      db.addHand(newHand, sessionId, sess.players).catch(console.error)
+      renumberedAfter.forEach(h => db.addHand(h, sessionId, sess.players).catch(console.error))
+    }
+  }, [update])
+
+  /** Reorder the session seat order. Updates dealerIndex to track the same dealer. */
+  const reorderSessionPlayers = useCallback((sessionId, newOrder) => {
+    const sess = stateRef.current.sessions.find(s => s.id === sessionId)
+    if (!sess) return
+
+    const currentDealerPid = sess.players[sess.dealerIndex]
+    const newDealerIndex   = newOrder.indexOf(currentDealerPid)
+
+    update(s => ({
+      ...s,
+      sessions: s.sessions.map(session => {
+        if (session.id !== sessionId) return session
+        return {
+          ...session,
+          players:     newOrder,
+          dealerIndex: newDealerIndex >= 0 ? newDealerIndex : 0,
+        }
+      }),
+    }))
+    if (hasSupabase) {
+      db.updateSession(sessionId, { players: newOrder }).catch(console.error)
     }
   }, [update])
 
@@ -538,8 +687,9 @@ export function useStore() {
     syncError,
     addPlayer, updatePlayer, removePlayer,
     startSession, endSession, deleteSession,
-    addHand, updateHand, deleteHand,
+    addHand, updateHand, deleteHand, insertHandAt,
     activateLastRound, addSessionPlayer,
+    insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,
     getPlayer, getDisplayName, getSession, getActiveSession,
     getSessionTotals, getAnalytics,
   }

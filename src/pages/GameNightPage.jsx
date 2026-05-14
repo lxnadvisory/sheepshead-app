@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import Scoreboard    from '../components/Scoreboard'
-import HandEntryModal from '../components/HandEntryModal'
-import Settlement    from '../components/Settlement'
+import Scoreboard         from '../components/Scoreboard'
+import HandEntryModal     from '../components/HandEntryModal'
+import ManagePlayersModal from '../components/ManagePlayersModal'
+import Settlement         from '../components/Settlement'
 import InGameStats, { computeStreaks, streakStyle } from '../components/InGameStats'
 import Avatar from '../components/Avatar'
 import HandIcons from '../components/HandIcons'
@@ -233,12 +234,14 @@ function pickToast(hand) {
   return null
 }
 
-function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, endSession, activateLastRound, addSessionPlayer, onShowDisplay }) {
-  const [showModal,   setShowModal]   = useState(false)
-  const [showSettle,  setShowSettle]  = useState(false)
-  const [confirmEnd,  setConfirmEnd]  = useState(false)
-  const [showStats,   setShowStats]   = useState(false)
-  const [showAddPlyr, setShowAddPlyr] = useState(false)
+function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, onShowDisplay }) {
+  const [showModal,     setShowModal]     = useState(false)
+  const [showSettle,    setShowSettle]    = useState(false)
+  const [confirmEnd,    setConfirmEnd]    = useState(false)
+  const [showStats,     setShowStats]     = useState(false)
+  const [showAddPlyr,   setShowAddPlyr]   = useState(false)
+  const [showManage,    setShowManage]    = useState(false)
+  const [showManualAdd, setShowManualAdd] = useState(false)
   const [toast,        setToast]        = useState(null)
   const [editingHand,  setEditingHand]  = useState(null)   // hand object being edited
   const [scrollTarget, setScrollTarget] = useState(null)   // { id, ts } — click-from-ledger
@@ -252,14 +255,22 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [scrollTarget])
 
-  const sessionPlayers = session.players
-  const hands          = session.hands
-  const is6Player      = sessionPlayers.length === 6
-  const currentDealer  = sessionPlayers[session.dealerIndex ?? 0]
-  const dealerPid      = is6Player ? currentDealer : null
+  const sessionPlayers  = session.players
+  const hands           = session.hands
+  const leftPlayers     = session.leftPlayers ?? []
+  // activeSeatOrder: players still participating (excludes anyone who left mid-session)
+  const activeSeatOrder = sessionPlayers.filter(p => !leftPlayers.includes(p))
+  const activeCount     = activeSeatOrder.length
+  const is6Player       = activeCount === 6
+  // store invariant: dealerIndex always points to a non-left player
+  const currentDealer   = sessionPlayers[session.dealerIndex ?? 0]
+  const dealerPid       = is6Player ? currentDealer : null
 
-  // Active players for this hand (excludes sitting-out dealer in 6-player)
-  const activePlayers = dealerPid ? sessionPlayers.filter(p => p !== dealerPid) : sessionPlayers
+  // activePlayers is ONLY for the new-hand entry form (picker/partner dropdowns).
+  // The scoreboard and hand history always iterate sessionPlayers for stable column order.
+  const activePlayers = dealerPid
+    ? activeSeatOrder.filter(p => p !== dealerPid)
+    : activeSeatOrder
 
   const totals = useMemo(() => {
     const t = {}
@@ -276,7 +287,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
 
   const dateStr = new Date(session.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
-  // Roster players not yet in session
+  // Roster players not yet in session (quick-add strip; full seat-position picker is in ManagePlayersModal)
   const addablePlayers = allRosterPlayers.filter(p => !sessionPlayers.includes(p.id) && sessionPlayers.length < 6)
 
   // ── Session header ──────────────────────────────────────────────────────────
@@ -298,6 +309,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {!isWide && <button className="btn btn-ghost btn-sm" onClick={() => setShowStats(true)}>◈ Stats</button>}
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowManage(true)} title="Add, remove, or reorder players">
+            ⚙ Players
+          </button>
           {addablePlayers.length > 0 && (
             <button className="btn btn-ghost btn-sm" onClick={() => setShowAddPlyr(s => !s)}>+ Player</button>
           )}
@@ -401,7 +415,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
                 hands={hands}
                 totals={totals}
                 dealerPid={currentDealer}
+                leftPlayers={leftPlayers}
                 onHandClick={(handId) => setScrollTarget({ id: handId, ts: Date.now() })}
+                onEditHand={(handId) => setEditingHand(hands.find(h => h.id === handId) ?? null)}
               />
             </div>
           )}
@@ -441,12 +457,27 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         )}
       </div>
 
-      {/* FAB */}
+      {/* FAB + Past Hand button */}
       {!showSettle && (
-        <button className="btn btn-primary btn-lg" onClick={() => setShowModal(true)}
-          style={{ position: 'fixed', bottom: 24, right: 24, borderRadius: 32, boxShadow: '0 4px 20px rgba(99,102,241,0.45)', paddingLeft: 20, paddingRight: 20, zIndex: 100 }}>
-          + Log Hand
-        </button>
+        <>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowManualAdd(true)}
+            style={{
+              position: 'fixed', bottom: 74, right: 24, zIndex: 100,
+              borderRadius: 20, fontSize: 12,
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow)',
+            }}
+          >
+            + Past Hand
+          </button>
+          <button className="btn btn-primary btn-lg" onClick={() => setShowModal(true)}
+            style={{ position: 'fixed', bottom: 24, right: 24, borderRadius: 32, boxShadow: '0 4px 20px rgba(99,102,241,0.45)', paddingLeft: 20, paddingRight: 20, zIndex: 100 }}>
+            + Log Hand
+          </button>
+        </>
       )}
 
       {/* Hand entry modal */}
@@ -467,19 +498,54 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         />
       )}
 
-      {/* Edit hand modal */}
+      {/* Edit hand modal — use the original hand's dealerPid, not the current hand's */}
       {editingHand && (
         <HandEntryModal
-          players={activePlayers}
+          players={editingHand.dealerPid
+            ? sessionPlayers.filter(p => p !== editingHand.dealerPid)
+            : sessionPlayers}
           getPlayer={getPlayer}
           getDisplayName={getDisplayName}
-          dealerPid={dealerPid}
+          dealerPid={editingHand.dealerPid}
+          handNumber={editingHand.handNumber}
           initialValues={editingHand}
           onSubmit={(hand) => {
             updateHand(session.id, editingHand.id, { ...hand, scores: hand.scores })
             setEditingHand(null)
           }}
           onClose={() => setEditingHand(null)}
+        />
+      )}
+
+      {/* Add past hand modal */}
+      {showManualAdd && (
+        <HandEntryModal
+          players={activePlayers}
+          getPlayer={getPlayer}
+          getDisplayName={getDisplayName}
+          dealerPid={null}
+          isManualAdd={true}
+          allSessionPlayers={sessionPlayers}
+          existingHandCount={hands.length}
+          onSubmit={({ insertAfterHandNumber, dealerPid: manualDealer, ...handCore }) => {
+            insertHandAt(session.id, { ...handCore, dealerPid: manualDealer }, insertAfterHandNumber)
+            setShowManualAdd(false)
+          }}
+          onClose={() => setShowManualAdd(false)}
+        />
+      )}
+
+      {/* Manage Players modal */}
+      {showManage && (
+        <ManagePlayersModal
+          session={session}
+          allRosterPlayers={allRosterPlayers}
+          getPlayer={getPlayer}
+          getDisplayName={getDisplayName}
+          onInsertPlayer={(pid, idx) => insertSessionPlayer(session.id, pid, idx)}
+          onMarkLeft={(pid) => markPlayerLeft(session.id, pid)}
+          onReorder={(newOrder) => reorderSessionPlayers(session.id, newOrder)}
+          onClose={() => setShowManage(false)}
         />
       )}
 
@@ -557,8 +623,9 @@ function PastSessionCard({ session, getPlayer, getDisplayName, getSessionTotals,
 export default function GameNightPage({
   players, sessions,
   startSession, endSession, deleteSession,
-  addHand, updateHand, deleteHand,
+  addHand, updateHand, deleteHand, insertHandAt,
   activateLastRound, addSessionPlayer,
+  insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,
   getPlayer, getDisplayName, getActiveSession, getSessionTotals,
   onShowDisplay,
 }) {
@@ -581,9 +648,13 @@ export default function GameNightPage({
         addHand={addHand}
         updateHand={updateHand}
         deleteHand={deleteHand}
+        insertHandAt={insertHandAt}
         endSession={handleEndSession}
         activateLastRound={activateLastRound}
         addSessionPlayer={addSessionPlayer}
+        insertSessionPlayer={insertSessionPlayer}
+        markPlayerLeft={markPlayerLeft}
+        reorderSessionPlayers={reorderSessionPlayers}
         onShowDisplay={onShowDisplay}
       />
     )

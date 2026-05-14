@@ -28,6 +28,10 @@ export default function HandEntryModal({
   initialValues,
   onSubmit,
   onClose,
+  handNumber,
+  isManualAdd,
+  allSessionPlayers,
+  existingHandCount,
 }) {
   const iv        = initialValues ?? {}
   const isEditing = !!initialValues
@@ -40,13 +44,18 @@ export default function HandEntryModal({
   const [shedClean,    setShedClean]    = useState(iv.shedClean    ?? false)
   // pickerNoTricks is DERIVED — no toggle, no state
   const [doublerCount, setDoublerCount] = useState(
-    isEditing ? (iv.doublerCount ?? (iv.doubler ? 1 : 0)) : (lastRoundActive ? 1 : 0)
+    isEditing ? (iv.doublerCount ?? (iv.doubler ? 1 : 0)) : isManualAdd ? 0 : (lastRoundActive ? 1 : 0)
   )
   const [crackers,   setCrackers]   = useState(iv.crackers   ?? [])
   const [recrackers, setRecrackers] = useState(iv.recrackers ?? [])
   const [blitzes,    setBlitzes]    = useState(iv.blitzes    ?? {})
   const [smith,      setSmith]      = useState(iv.smith      ?? false)
   const [blitzOpen,  setBlitzOpen]  = useState(Object.keys(iv.blitzes ?? {}).length > 0)
+
+  // Manual-add mode state
+  const [manualDealerPid,       setManualDealerPid]       = useState(null)
+  const [insertAfterHandNumber, setInsertAfterHandNumber]  = useState(existingHandCount ?? 0)
+  const [manualLastRound,       setManualLastRound]        = useState(false)
 
   // ── Voice state ────────────────────────────────────────────────────────────
   const [listening,        setListening]        = useState(false)
@@ -64,8 +73,12 @@ export default function HandEntryModal({
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const pickerNoTricks    = pickerPoints === 0 && !shedClean
-  const availablePartners = players.filter(p => p !== picker)
-  const eligibleCrackers  = picker ? players.filter(p => p !== picker && (isLoner || p !== partner)) : []
+  const effectiveDealerPid = isManualAdd ? manualDealerPid : dealerPid
+  const effectivePlayers   = isManualAdd
+    ? (allSessionPlayers ?? players).filter(p => p !== manualDealerPid)
+    : players
+  const availablePartners = effectivePlayers.filter(p => p !== picker)
+  const eligibleCrackers  = picker ? effectivePlayers.filter(p => p !== picker && (isLoner || p !== partner)) : []
   const eligibleRecrackers = (partner && !isLoner) ? [picker, partner].filter(Boolean) : picker ? [picker] : []
   const crackActive        = crackers.length > 0
   const blitzCount         = Object.keys(blitzes).length
@@ -143,18 +156,19 @@ export default function HandEntryModal({
     isLoner, pickerPoints, shedClean, pickerNoTricks,
     smith: isLoner ? false : smith,
     doublerCount, crackers, recrackers, blitzes,
+    ...(isManualAdd ? { lastRound: manualLastRound } : {}),
   }
 
   const preview = useMemo(() => {
     if (!picker || (!isLoner && !partner)) return null
     return calculateHandScores({
       ...handData,
-      players: dealerPid ? [...players, dealerPid] : players,
-      dealerPid,
+      players: effectiveDealerPid ? [...effectivePlayers, effectiveDealerPid] : effectivePlayers,
+      dealerPid: effectiveDealerPid,
     })
-  }, [picker, partner, isLoner, pickerPoints, shedClean, smith, doublerCount, crackers, recrackers, blitzes, players, dealerPid])
+  }, [picker, partner, isLoner, pickerPoints, shedClean, smith, doublerCount, crackers, recrackers, blitzes, manualLastRound, effectivePlayers, effectiveDealerPid]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const multiplier    = getMultiplier({ doublerCount, crackers, recrackers, blitzes })
+  const multiplier    = getMultiplier({ doublerCount, crackers, recrackers, blitzes, lastRound: isManualAdd ? manualLastRound : undefined })
   const tier          = getTierLabel({ shedClean, pickerNoTricks, pickerPoints })
   const canSubmit     = picker && (isLoner || partner) && preview !== null
   const conservationOk = preview ? verifyConservation(preview) : true
@@ -165,10 +179,10 @@ export default function HandEntryModal({
 
   // Start countdown once form is fully populated after a clean voice parse
   useEffect(() => {
-    if (pendingCountdown && canSubmit && !isEditing) {
+    if (pendingCountdown && canSubmit && !isEditing && !isManualAdd) {
       setAutoPost(COUNTDOWN_SECS); setPendingCountdown(false)
     }
-  }, [pendingCountdown, canSubmit, isEditing])
+  }, [pendingCountdown, canSubmit, isEditing, isManualAdd])
 
   const handleSubmit = () => {
     if (!canSubmit) return
@@ -177,7 +191,11 @@ export default function HandEntryModal({
       return
     }
     cancelCountdown()
-    onSubmit({ ...handData, scores: preview })
+    if (isManualAdd) {
+      onSubmit({ ...handData, scores: preview, dealerPid: manualDealerPid, insertAfterHandNumber })
+    } else {
+      onSubmit({ ...handData, scores: preview })
+    }
   }
 
   // ── Apply parsed fields ────────────────────────────────────────────────────
@@ -207,7 +225,7 @@ export default function HandEntryModal({
     const result = parseVoiceCommand(text, players, getPlayer, getDisplayName)
     applyParseFields(result.fields)
     setParseResult(result)
-    if (result.status === 'clean' && !isEditing) setPendingCountdown(true)
+    if (result.status === 'clean' && !isEditing && !isManualAdd) setPendingCountdown(true)
   }, [players, getPlayer, getDisplayName, applyParseFields, isEditing])
 
   // ── Voice recognition — continuous mode ───────────────────────────────────
@@ -281,7 +299,7 @@ export default function HandEntryModal({
   }, [listening, startListening, stopListening])
 
   // ── Render helpers ─────────────────────────────────────────────────────────
-  const allDisplayPlayers = dealerPid ? [...players, dealerPid] : players
+  const allDisplayPlayers = effectiveDealerPid ? [...effectivePlayers, effectiveDealerPid] : effectivePlayers
   const ringOffset = RING_C * (1 - (autoPost ?? 0) / COUNTDOWN_SECS)
 
   return (
@@ -291,10 +309,12 @@ export default function HandEntryModal({
         {/* ── Header ── */}
         <div className="modal-header">
           <div>
-            <h2 style={{ fontSize: 17, fontWeight: 700 }}>{isEditing ? 'Edit Hand' : 'Log Hand'}</h2>
-            {dealerPid && (
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: isEditing ? 'var(--warning)' : undefined }}>
+              {isManualAdd ? 'Add Past Hand' : isEditing ? `Editing Hand #${handNumber}` : 'Log Hand'}
+            </h2>
+            {!isManualAdd && effectiveDealerPid && (
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                {getDisplayName(dealerPid)} sits out (dealer)
+                {getDisplayName(effectiveDealerPid)} sits out (dealer)
               </div>
             )}
           </div>
@@ -370,6 +390,74 @@ export default function HandEntryModal({
             </div>
           )}
 
+          {/* ── Manual-add config ── */}
+          {isManualAdd && (
+            <div style={{
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)',
+              padding: '12px 14px',
+              display: 'flex', flexDirection: 'column', gap: 12,
+            }}>
+              {/* Insert position */}
+              <div>
+                <div style={LBL}>Insert Position</div>
+                <select
+                  value={insertAfterHandNumber}
+                  onChange={e => setInsertAfterHandNumber(Number(e.target.value))}
+                  style={{
+                    width: '100%', padding: '6px 10px',
+                    background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontSize: 13,
+                  }}
+                >
+                  <option value={0}>Before Hand #1 (start)</option>
+                  {Array.from({ length: existingHandCount ?? 0 }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>After Hand #{i + 1}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Dealer */}
+              <div>
+                <div style={LBL}>Dealer (sits out)</div>
+                <div className="toggle-group" style={{ flexWrap: 'wrap' }}>
+                  <button
+                    className={`toggle-btn ${manualDealerPid === null ? 'active' : ''}`}
+                    onClick={() => setManualDealerPid(null)}
+                    style={{ padding: '5px 8px', fontSize: 12 }}
+                  >None (5-player)</button>
+                  {(allSessionPlayers ?? players).map(pid => (
+                    <button key={pid}
+                      className={`toggle-btn ${manualDealerPid === pid ? 'active-warning' : ''}`}
+                      onClick={() => {
+                        setManualDealerPid(pid)
+                        if (picker === pid)  { setPicker(''); setPartner(''); setCrackers([]); setRecrackers([]) }
+                        else if (partner === pid) { setPartner(''); setRecrackers([]) }
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 8px', fontSize: 12 }}
+                    >
+                      <Avatar player={getPlayer(pid)} size={16} />
+                      {getDisplayName(pid)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Options */}
+              <div>
+                <div style={LBL}>Options</div>
+                <div className="toggle-group">
+                  <button
+                    className={`toggle-btn ${manualLastRound ? 'active-warning' : ''}`}
+                    onClick={() => setManualLastRound(lr => !lr)}
+                    style={{ padding: '5px 10px', fontSize: 12 }}
+                  >🏁 Last Round ×2</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Two-column grid ── */}
           <div className="hand-form-cols" style={{ alignItems: 'start' }}>
 
@@ -380,7 +468,7 @@ export default function HandEntryModal({
               <div>
                 <div style={LBL}>Picker</div>
                 <div className="toggle-group">
-                  {players.map(pid => (
+                  {effectivePlayers.map(pid => (
                     <button key={pid}
                       className={`toggle-btn ${picker === pid ? 'active' : ''}`}
                       onClick={() => { setPicker(pid); if (partner === pid) setPartner(''); setCrackers([]); setRecrackers([]) }}
@@ -568,7 +656,7 @@ export default function HandEntryModal({
                 </button>
                 {blitzOpen && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {players.map(pid => {
+                    {effectivePlayers.map(pid => {
                       const b = blitzes[pid] ?? { black: false, red: false }
                       return (
                         <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -686,7 +774,7 @@ export default function HandEntryModal({
                 transition: 'box-shadow 0.3s',
               }}
             >
-              {isEditing ? 'Update Hand' : 'Post Hand'}
+              {isEditing ? 'Update Hand' : isManualAdd ? 'Insert Hand' : 'Post Hand'}
             </button>
           </div>
         </div>

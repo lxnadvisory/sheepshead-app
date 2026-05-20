@@ -71,8 +71,13 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
           </tr>
         </thead>
         <tbody>
-          {hands.map(hand => (
-            <tr key={hand.id} style={{ borderBottom: '1px solid var(--border)' }}>
+          {hands.map((hand, i) => {
+            const isLast = i === hands.length - 1
+            return (
+            <tr key={hand.id} style={{
+              borderBottom: '1px solid var(--border)',
+              background: isLast ? 'rgba(99,102,241,0.07)' : undefined,
+            }}>
               <td style={tdStyle(true)}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -117,6 +122,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
                 return (
                   <td key={pid} style={{
                     ...tdStyle(false),
+                    fontSize: isLast ? 15 : undefined,
                     background: isKey && !isLeft ? 'rgba(99,102,241,0.04)' : undefined,
                     opacity: isSit || isLeft ? 0.35 : 1,
                   }}>
@@ -128,13 +134,14 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
                 )
               })}
             </tr>
-          ))}
+            )
+          })}
 
           {hands.length > 0 && (
             <tr style={{ borderTop: '2px solid var(--border)' }}>
               <td style={{ ...tdStyle(true), color: 'var(--text-muted)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Total</td>
               {players.map(pid => (
-                <td key={pid} style={{ ...tdStyle(false), fontSize: 16, fontWeight: 800 }}>
+                <td key={pid} style={{ ...tdStyle(false), fontSize: 28, fontWeight: 900 }}>
                   {fmt(totals[pid] ?? 0)}
                 </td>
               ))}

@@ -274,7 +274,7 @@ select option { background: var(--bg-elevated); }
 }
 
 .modal-header {
-  padding: 20px 20px 0;
+  padding: 14px 20px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -282,7 +282,6 @@ select option { background: var(--bg-elevated); }
   top: 0;
   background: var(--bg-surface);
   z-index: 1;
-  padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
 }
 

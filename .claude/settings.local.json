@@ -7,7 +7,9 @@
       "Bash(node *)",
       "Bash(npx vite *)",
       "Bash(npm run *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "mcp__claude_ai_Gmail__create_draft"
     ]
   }
 }

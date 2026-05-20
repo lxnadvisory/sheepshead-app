@@ -7,6 +7,7 @@ export function computeStreaks(hands, players) {
   players.forEach(pid => { streaks[pid] = 0 })
   hands.forEach(hand => {
     players.forEach(pid => {
+      if (pid === hand.dealerPid) return   // sit-out hands don't break streaks
       const delta = hand.scores?.[pid] ?? 0
       if (delta > 0)      streaks[pid] = streaks[pid] > 0 ? streaks[pid] + 1 : 1
       else if (delta < 0) streaks[pid] = streaks[pid] < 0 ? streaks[pid] - 1 : -1
@@ -20,17 +21,20 @@ export function streakStyle(n) {
   const abs = Math.abs(n)
   if (n === 0) return null
   if (n > 0) {
-    if (abs >= 5) return { icon: '🔥🔥🔥', color: '#ff2200', bg: 'rgba(255,34,0,0.18)' }
-    if (abs >= 4) return { icon: '🔥🔥',   color: '#ff4400', bg: 'rgba(255,68,0,0.15)' }
-    if (abs >= 3) return { icon: '🔥',     color: '#ff7700', bg: 'rgba(255,119,0,0.13)' }
-    if (abs >= 2) return { icon: '🔥',     color: '#ff9f00', bg: 'rgba(255,159,0,0.10)' }
+    if (abs >= 6) return { icon: '👑',  color: '#f59e0b', bg: 'rgba(245,158,11,0.18)' }
+    if (abs === 5) return { icon: '☀️', color: '#ff6600', bg: 'rgba(255,102,0,0.15)' }
+    if (abs === 4) return { icon: '🫠', color: '#ff7700', bg: 'rgba(255,119,0,0.13)' }
+    if (abs === 3) return { icon: '🌶️', color: '#ff4400', bg: 'rgba(255,68,0,0.12)' }
+    if (abs === 2) return { icon: '🔥🔥', color: '#ff9f00', bg: 'rgba(255,159,0,0.10)' }
+    return               { icon: '🔥',  color: '#ffbb00', bg: 'rgba(255,187,0,0.08)' }
   } else {
-    if (abs >= 5) return { icon: '🧊🧊🧊', color: '#6644ee', bg: 'rgba(100,68,238,0.18)' }
-    if (abs >= 4) return { icon: '🧊🧊',   color: '#4466ff', bg: 'rgba(68,102,255,0.15)' }
-    if (abs >= 3) return { icon: '🧊',     color: '#5599ff', bg: 'rgba(85,153,255,0.13)' }
-    if (abs >= 2) return { icon: '❄️',     color: '#77aaff', bg: 'rgba(119,170,255,0.10)' }
+    if (abs >= 6) return { icon: '☠️',  color: '#7c3aed', bg: 'rgba(124,58,237,0.18)' }
+    if (abs === 5) return { icon: '🥶', color: '#6644ee', bg: 'rgba(100,68,238,0.15)' }
+    if (abs === 4) return { icon: '⛄', color: '#4466ff', bg: 'rgba(68,102,255,0.13)' }
+    if (abs === 3) return { icon: '🧊', color: '#5599ff', bg: 'rgba(85,153,255,0.12)' }
+    if (abs === 2) return { icon: '🐧', color: '#77aaff', bg: 'rgba(119,170,255,0.10)' }
+    return               { icon: '❄️', color: '#99bbff', bg: 'rgba(153,187,255,0.07)' }
   }
-  return null
 }
 
 // ── Stat computation ──────────────────────────────────────────────────────────

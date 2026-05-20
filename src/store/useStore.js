@@ -664,6 +664,7 @@ export function useStore() {
       allHands.forEach(h => {
         const delta = h.scores?.[pid]
         if (delta === undefined) return
+        if (pid === h.dealerPid) return   // sit-out hands don't break streaks
         if (delta > 0) {
           curW++; curL = 0; if (curW > maxW) maxW = curW; cur = curW
         } else if (delta < 0) {

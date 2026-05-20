@@ -402,7 +402,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
     <div style={{ padding: '0 16px 80px' }}>
       {showSettle ? (
         <div style={{ paddingTop: 20 }}>
-          <Settlement players={sessionPlayers} totals={totals} getPlayer={getPlayer} getDisplayName={getDisplayName} />
+          <Settlement players={sessionPlayers} totals={totals} getPlayer={getPlayer} getDisplayName={getDisplayName} session={session} />
         </div>
       ) : (
         <>
@@ -488,6 +488,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           getDisplayName={getDisplayName}
           dealerPid={dealerPid}
           lastRoundActive={lastRoundActive}
+          handNumber={hands.length + 1}
           onSubmit={(hand) => {
             addHand(session.id, hand)
             setShowModal(false)

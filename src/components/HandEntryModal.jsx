@@ -15,8 +15,8 @@ function fmt(n) {
 }
 
 // Compact section label styles
-const LBL  = { fontSize: 9,  fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }
-const SLBL = { fontSize: 9,  fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }
+const LBL  = { fontSize: 9,  fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }
+const SLBL = { fontSize: 9,  fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function HandEntryModal({
@@ -50,7 +50,6 @@ export default function HandEntryModal({
   const [recrackers, setRecrackers] = useState(iv.recrackers ?? [])
   const [blitzes,    setBlitzes]    = useState(iv.blitzes    ?? {})
   const [smith,      setSmith]      = useState(iv.smith      ?? false)
-  const [blitzOpen,  setBlitzOpen]  = useState(Object.keys(iv.blitzes ?? {}).length > 0)
 
   // Manual-add mode state
   const [manualDealerPid,       setManualDealerPid]       = useState(null)
@@ -82,9 +81,6 @@ export default function HandEntryModal({
   const eligibleRecrackers = (partner && !isLoner) ? [picker, partner].filter(Boolean) : picker ? [picker] : []
   const crackActive        = crackers.length > 0
   const blitzCount         = Object.keys(blitzes).length
-
-  // Auto-expand blitz section when a blitz becomes active
-  useEffect(() => { if (blitzCount > 0) setBlitzOpen(true) }, [blitzCount])
 
   // ── Toggles ────────────────────────────────────────────────────────────────
   const toggleCracker = (pid) => {
@@ -310,13 +306,12 @@ export default function HandEntryModal({
         <div className="modal-header">
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: isEditing ? 'var(--warning)' : undefined }}>
-              {isManualAdd ? 'Add Past Hand' : isEditing ? `Editing Hand #${handNumber}` : 'Log Hand'}
+              {isManualAdd ? 'Add Past Hand'
+                : isEditing ? `Editing Hand #${handNumber}`
+                : handNumber
+                  ? `Log Hand · Hand #${handNumber}${effectiveDealerPid ? ` · Dealer: ${getDisplayName(effectiveDealerPid)}` : ''}`
+                  : 'Log Hand'}
             </h2>
-            {!isManualAdd && effectiveDealerPid && (
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                {getDisplayName(effectiveDealerPid)} sits out (dealer)
-              </div>
-            )}
           </div>
           <button className="btn btn-ghost btn-icon" onClick={onClose} style={{ fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
@@ -324,7 +319,7 @@ export default function HandEntryModal({
         {/* ── Body ── */}
         <div
           className="modal-body"
-          style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}
+          style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 7 }}
           onPointerDown={autoPost !== null ? cancelCountdown : undefined}
         >
 
@@ -332,7 +327,7 @@ export default function HandEntryModal({
           <div style={{
             background: 'var(--bg-elevated)',
             border: `1px solid ${listening ? 'var(--danger)' : 'var(--border)'}`,
-            borderRadius: 'var(--radius)', padding: '8px 12px', transition: 'border-color 0.2s',
+            borderRadius: 'var(--radius)', padding: '5px 10px', transition: 'border-color 0.2s',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
@@ -462,7 +457,7 @@ export default function HandEntryModal({
           <div className="hand-form-cols" style={{ alignItems: 'start' }}>
 
             {/* LEFT column: Picker · Partner · Points · Specials */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
               {/* Picker */}
               <div>
@@ -522,7 +517,7 @@ export default function HandEntryModal({
                 <input
                   type="range" min={0} max={120} step={1} value={pickerPoints}
                   onChange={e => handlePointsChange(e.target.value)}
-                  style={{ marginBottom: 3 }}
+                  style={{ marginBottom: 1 }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)' }}>
                   <span>0</span><span>30</span><span>60</span><span>90</span><span>120</span>
@@ -555,7 +550,7 @@ export default function HandEntryModal({
             </div>{/* end left column */}
 
             {/* RIGHT column: Doubler · Crack · Re-crack · Blitz */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
               {/* Doubler */}
               <div>
@@ -563,7 +558,7 @@ export default function HandEntryModal({
                   Doubler
                   {multiplier > 1 && <span style={{ color: 'var(--warning)', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}> ×{multiplier}</span>}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <button
                     onClick={cycleDoubler}
                     style={{
@@ -639,48 +634,36 @@ export default function HandEntryModal({
                 </div>
               </div>
 
-              {/* Blitz — collapsible */}
+              {/* Blitz */}
               <div>
-                <button
-                  onClick={() => setBlitzOpen(o => !o)}
-                  style={{
-                    ...SLBL, marginBottom: blitzOpen ? 6 : 0,
-                    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    color: blitzCount > 0 ? 'var(--warning)' : 'var(--text-muted)',
-                  }}
-                >
-                  <span style={{ fontSize: 10 }}>{blitzOpen ? '▾' : '▸'}</span>
-                  {blitzOpen ? '−' : '+'} Blitz
-                  {blitzCount > 0 && <span>({blitzCount})</span>}
-                </button>
-                {blitzOpen && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {effectivePlayers.map(pid => {
-                      const b = blitzes[pid] ?? { black: false, red: false }
-                      return (
-                        <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 70, flexShrink: 0 }}>
-                            <Avatar player={getPlayer(pid)} size={14} />
-                            <span style={{ fontSize: 11, fontWeight: 600 }}>{getDisplayName(pid)}</span>
-                          </div>
-                          <div className="toggle-group" style={{ flex: 1 }}>
-                            <button
-                              className={`toggle-btn ${b.black ? 'active-warning' : ''}`}
-                              onClick={() => toggleBlitz(pid, 'black')}
-                              style={{ fontSize: 10, padding: '3px 6px' }}
-                            >♠♣ Black</button>
-                            <button
-                              className={`toggle-btn ${b.red ? 'active-danger' : ''}`}
-                              onClick={() => toggleBlitz(pid, 'red')}
-                              style={{ fontSize: 10, padding: '3px 6px' }}
-                            >♥♦ Red</button>
-                          </div>
+                <div style={{ ...SLBL, color: blitzCount > 0 ? 'var(--warning)' : undefined }}>
+                  Blitz{blitzCount > 0 && <span style={{ fontWeight: 700 }}> ({blitzCount})</span>}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {effectivePlayers.map(pid => {
+                    const b = blitzes[pid] ?? { black: false, red: false }
+                    return (
+                      <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 68, flexShrink: 0 }}>
+                          <Avatar player={getPlayer(pid)} size={14} />
+                          <span style={{ fontSize: 11, fontWeight: 600 }}>{getDisplayName(pid)}</span>
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        <div className="toggle-group" style={{ flex: 1 }}>
+                          <button
+                            className={`toggle-btn ${b.black ? 'active-warning' : ''}`}
+                            onClick={() => toggleBlitz(pid, 'black')}
+                            style={{ fontSize: 10, padding: '2px 5px' }}
+                          >♠♣ Black</button>
+                          <button
+                            className={`toggle-btn ${b.red ? 'active-danger' : ''}`}
+                            onClick={() => toggleBlitz(pid, 'red')}
+                            style={{ fontSize: 10, padding: '2px 5px' }}
+                          >♥♦ Red</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
             </div>{/* end right column */}
@@ -692,7 +675,7 @@ export default function HandEntryModal({
             <div style={{
               background: 'var(--bg-elevated)',
               border: `1px solid ${conservationOk ? 'var(--border)' : 'var(--danger)'}`,
-              borderRadius: 'var(--radius)', padding: 12,
+              borderRadius: 'var(--radius)', padding: '8px 12px',
             }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                 Preview {multiplier > 1 && <span style={{ color: 'var(--warning)' }}>×{multiplier}</span>}

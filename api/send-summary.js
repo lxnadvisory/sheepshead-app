@@ -3,6 +3,8 @@ import { Resend } from 'resend'
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 export default async function handler(req, res) {
+  console.log('[send-summary] method:', req.method, '| body keys:', Object.keys(req.body ?? {}))
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }

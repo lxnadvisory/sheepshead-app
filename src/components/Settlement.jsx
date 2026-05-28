@@ -274,26 +274,33 @@ export default function Settlement({ players, totals, getPlayer, getDisplayName,
     const { subject, html } = buildHtmlEmail(session, players, totals, getPlayer, dn, transfers)
     const toList = emailTargets.map(r => r.email)
 
+    let fetchRes = null
     try {
-      const res = await fetch('/api/send-summary', {
+      fetchRes = await fetch('/api/send-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to: toList, subject, html }),
       })
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error ?? `Server error ${res.status}`)
+      console.log('[send-summary] response status:', fetchRes.status, fetchRes.statusText)
+
+      if (!fetchRes.ok) {
+        const data = await fetchRes.json().catch(() => ({}))
+        console.error('[send-summary] error body:', data)
+        throw new Error(data.error ?? `Server error ${fetchRes.status}`)
       }
 
       setSent(true)
       setShowModal(false)
     } catch (err) {
-      // Fallback to mailto if endpoint unreachable (local dev / non-Vercel)
-      const isNetworkError = err instanceof TypeError || err.message?.includes('fetch') || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')
-      const is404 = err.message?.includes('404') || err.message?.includes('Server error 404')
+      console.error('[send-summary] caught error:', err.message, '| fetchRes:', fetchRes?.status ?? 'no response')
 
-      if (isNetworkError || is404) {
+      // Only fall back to mailto if the endpoint was truly unreachable (no response at all) or 404
+      const noResponse = fetchRes === null
+      const is404 = fetchRes?.status === 404
+
+      if (noResponse || is404) {
+        console.log('[send-summary] falling back to mailto')
         const body = buildMailtoBody(session, players, totals, getPlayer, dn, transfers)
         const bccList = toList.join(',')
         const a = document.createElement('a')

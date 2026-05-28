@@ -245,6 +245,8 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
   const [toast,        setToast]        = useState(null)
   const [editingHand,  setEditingHand]  = useState(null)   // hand object being edited
   const [scrollTarget, setScrollTarget] = useState(null)   // { id, ts } — click-from-ledger
+  const [autoEmailOpen, setAutoEmailOpen] = useState(false)
+  const settleAutoShownRef = useRef(false)
   const handItemRefs = useRef({})
   const isWide = useIsWide()
 
@@ -321,7 +323,14 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
               🏁 Last Round
             </button>
           )}
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowSettle(s => !s)}>
+          <button className="btn btn-ghost btn-sm" onClick={() => {
+            const opening = !showSettle
+            setShowSettle(s => !s)
+            if (opening && !settleAutoShownRef.current) {
+              settleAutoShownRef.current = true
+              setAutoEmailOpen(true)
+            }
+          }}>
             {showSettle ? 'Scoreboard' : 'Settle Up'}
           </button>
           {onShowDisplay && (
@@ -402,7 +411,15 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
     <div style={{ padding: '0 16px 80px' }}>
       {showSettle ? (
         <div style={{ paddingTop: 20 }}>
-          <Settlement players={sessionPlayers} totals={totals} getPlayer={getPlayer} getDisplayName={getDisplayName} session={session} />
+          <Settlement
+            players={sessionPlayers}
+            totals={totals}
+            getPlayer={getPlayer}
+            getDisplayName={getDisplayName}
+            session={session}
+            autoOpen={autoEmailOpen}
+            onAutoOpenHandled={() => setAutoEmailOpen(false)}
+          />
         </div>
       ) : (
         <>

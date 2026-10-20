@@ -299,6 +299,50 @@ export async function deleteHand(id) {
   if (error) throw error
 }
 
+/**
+ * Rewrite seat_deltas/seat_roles for existing hands after the seat order changes.
+ * seat_deltas is positional, so without this a reorder or mid-seat insert would
+ * shift every stored score onto the wrong player on the next load.
+ * Only those two columns are touched so stored tier/mult stay intact.
+ */
+export async function reseatHands(hands, seatOrder) {
+  const results = await Promise.all(hands.map(h => {
+    const { seat_deltas, seat_roles } = handToDb(h, null, seatOrder)
+    return supabase.from('hands').update({ seat_deltas, seat_roles }).eq('id', h.id)
+  }))
+  const failed = results.find(r => r.error)
+  if (failed) throw failed.error
+}
+
+/**
+ * Sanity-check a loaded hand. Returns human-readable problems (empty = OK).
+ * Problems never hide a hand — they're surfaced as warnings.
+ */
+export function validateLoadedHand(row, hand, seatOrder) {
+  const label  = `Hand #${row.hand_number ?? '?'}${hand?.handType === 'fup' ? ' (F-Up)' : ''}`
+  const issues = []
+  if (row.hand_number == null) issues.push(`${label}: missing hand number`)
+  if (!Array.isArray(row.seat_deltas)) {
+    issues.push(`${label}: no score data (seat_deltas)`)
+  } else if (row.seat_deltas.length > seatOrder.length) {
+    issues.push(`${label}: has ${row.seat_deltas.length} scores but the session has ${seatOrder.length} seats — extra scores dropped`)
+  }
+  const sum = Object.values(hand?.scores ?? {}).reduce((a, d) => a + d, 0)
+  if (Math.abs(sum) > 0.001) issues.push(`${label}: scores don't balance (sum ${sum > 0 ? '+' : ''}${sum})`)
+  if (hand?.handType === 'fup') {
+    if (!hand.offenderId) issues.push(`${label}: no offender recorded`)
+    else if (!seatOrder.includes(hand.offenderId)) issues.push(`${label}: offender is not seated in this session`)
+  } else {
+    if (row.hand_type) issues.push(`${label}: unknown hand type "${row.hand_type}"`)
+    if (!hand?.picker) issues.push(`${label}: no picker recorded`)
+  }
+  return issues
+}
+
+/**
+ * Load a session's hands. Rows that fail to map are skipped but reported in
+ * `issues`, as are rows that load but fail validation (those stay visible).
+ */
 export async function getHandsBySession(sessionId, seatOrder) {
   const { data, error } = await supabase
     .from('hands')
@@ -306,5 +350,17 @@ export async function getHandsBySession(sessionId, seatOrder) {
     .eq('session_id', sessionId)
     .order('hand_number', { ascending: true })
   if (error) throw error
-  return (data || []).map(row => dbRowToHand(row, seatOrder))
+  const hands  = []
+  const issues = []
+  for (const row of data || []) {
+    try {
+      const hand = dbRowToHand(row, seatOrder)
+      hands.push(hand)
+      issues.push(...validateLoadedHand(row, hand, seatOrder))
+    } catch (err) {
+      console.error('[Supabase] Could not load hand row:', row, err)
+      issues.push(`Hand #${row.hand_number ?? '?'} could not be loaded and is NOT shown: ${err?.message || err}`)
+    }
+  }
+  return { hands, issues }
 }

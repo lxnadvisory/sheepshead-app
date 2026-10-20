@@ -119,6 +119,7 @@ export function useStore() {
   const [isLoading, setIsLoading] = useState(false)
   const [syncError, setSyncError] = useState(null)
   const [writeError, setWriteError] = useState(null)
+  const [loadWarnings, setLoadWarnings] = useState([])
 
   // Mirror of latest state for reading inside async callbacks
   // (React batches setState, so we can't rely on closure-captured `state`).
@@ -152,7 +153,8 @@ export function useStore() {
     }
   }, [])
 
-  const clearWriteError = useCallback(() => setWriteError(null), [])
+  const clearWriteError   = useCallback(() => setWriteError(null), [])
+  const clearLoadWarnings = useCallback(() => setLoadWarnings([]), [])
 
   // ── Initial Supabase load ────────────────────────────────────────────────
   useEffect(() => {
@@ -178,13 +180,62 @@ export function useStore() {
         ])
         console.log(`[Supabase] Found ${dbPlayers.length} players, ${dbSessions.length} sessions in DB`)
 
-        // 3. Load hands for each session
+        // 3. Load hands for each session. One bad session must not take down the
+        //    whole load — fall back to this device's copy and say so.
+        const warnings = []
         const sessionsWithHands = await Promise.all(
           dbSessions.map(async sess => {
-            const hands = await db.getHandsBySession(sess.id, sess.players)
-            return { ...sess, hands }
+            const localSess = local.sessions.find(s => s.id === sess.id)
+            const dateLabel = new Date(sess.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            let hands
+            try {
+              const res = await db.getHandsBySession(sess.id, sess.players)
+              hands = res.hands
+              res.issues.forEach(msg => warnings.push(`${dateLabel}: ${msg}`))
+            } catch (err) {
+              console.error(`[Supabase] Loading hands for session ${sess.id} failed:`, err)
+              warnings.push(`${dateLabel}: hands could not be loaded from the database (${err?.message || err}) — showing this device's saved copy instead.`)
+              return { ...sess, ...(localSess ?? {}), id: sess.id, players: sess.players, active: sess.active, hands: localSess?.hands ?? [] }
+            }
+
+            if (!localSess) return { ...sess, hands }
+
+            // Hands this device has that the DB doesn't — don't hide that silently
+            const dbIds   = new Set(hands.map(h => h.id))
+            const missing = (localSess.hands ?? []).filter(h => !dbIds.has(h.id))
+            if (missing.length > 0) {
+              warnings.push(
+                `${dateLabel}: ${missing.length} hand(s) on this device are not in the database and are not shown: ` +
+                missing.map(h => `#${h.handNumber}${h.handType === 'fup' ? ' (F-Up)' : ''}`).join(', ')
+              )
+            }
+
+            // dealerIndex / lastRoundRemaining / leftPlayers aren't stored in the DB.
+            // Keep this device's values when it has seen exactly the same hands.
+            const sameHands = missing.length === 0 && (localSess.hands?.length ?? 0) === hands.length
+            return {
+              ...sess,
+              hands,
+              leftPlayers:        localSess.leftPlayers ?? [],
+              ...(sameHands ? {
+                dealerIndex:        localSess.dealerIndex ?? sess.dealerIndex,
+                lastRoundRemaining: localSess.lastRoundRemaining ?? 0,
+              } : {}),
+            }
           })
         )
+
+        const activeSessions = sessionsWithHands.filter(s => s.active)
+        if (activeSessions.length > 1) {
+          warnings.push(
+            `${activeSessions.length} game nights are still marked live in the database (` +
+            activeSessions.map(s => `${new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${s.hands.length} hands`).join('; ') +
+            `). Showing the most recent one; once it's finalized the next one opens so you can finalize or delete it.`
+          )
+        }
+
+        if (warnings.length > 0) console.warn('[Supabase] Load warnings:', warnings)
+        setLoadWarnings(warnings)
 
         if (dbPlayers.length > 0 || sessionsWithHands.length > 0) {
           // Supabase has data — always use it as the source of truth.
@@ -248,6 +299,9 @@ export function useStore() {
       } catch (err) {
         console.error('[Supabase] initial load failed:', err)
         setSyncError('Sync unavailable — using local data')
+        setLoadWarnings([
+          `Could not load from the database (${err?.message || err}). Showing this device's saved copy, which may be missing hands logged elsewhere.`,
+        ])
       } finally {
         setIsLoading(false)
       }
@@ -529,7 +583,10 @@ export function useStore() {
       ? sess.dealerIndex + 1
       : sess.dealerIndex
 
-    await persist('Add player', () => db.updateSession(sessionId, { players: newPlayers }))
+    await persist('Add player', async () => {
+      await db.updateSession(sessionId, { players: newPlayers })
+      if (sess.hands.length) await db.reseatHands(sess.hands, newPlayers)
+    })
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
@@ -599,7 +656,10 @@ export function useStore() {
     const currentDealerPid = sess.players[sess.dealerIndex]
     const newDealerIndex   = newOrder.indexOf(currentDealerPid)
 
-    await persist('Reorder players', () => db.updateSession(sessionId, { players: newOrder }))
+    await persist('Reorder players', async () => {
+      await db.updateSession(sessionId, { players: newOrder })
+      if (sess.hands.length) await db.reseatHands(sess.hands, newOrder)
+    })
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
@@ -622,7 +682,10 @@ export function useStore() {
   [state.players])
 
   const getSession       = useCallback((id) => state.sessions.find(s => s.id === id),   [state.sessions])
-  const getActiveSession = useCallback(()    => state.sessions.find(s => s.active),      [state.sessions])
+  // Most recent live night wins if more than one is somehow still active
+  const getActiveSession = useCallback(() =>
+    state.sessions.filter(s => s.active).sort((a, b) => new Date(b.date) - new Date(a.date))[0],
+  [state.sessions])
 
   const getSessionTotals = useCallback((sessionId) => {
     const sess = state.sessions.find(s => s.id === sessionId)
@@ -724,6 +787,7 @@ export function useStore() {
     isLoading,
     syncError,
     writeError, clearWriteError,
+    loadWarnings, clearLoadWarnings,
     addPlayer, updatePlayer, removePlayer,
     startSession, endSession, deleteSession, reopenSession,
     addHand, updateHand, deleteHand, insertHandAt,

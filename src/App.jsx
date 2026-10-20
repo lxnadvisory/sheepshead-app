@@ -189,6 +189,29 @@ export default function App() {
         </div>
       )}
 
+      {/* Problems found while loading from Supabase — stays until dismissed */}
+      {store.loadWarnings.length > 0 && (
+        <div role="alert" style={{
+          margin: '12px 12px 0', maxWidth: 720, alignSelf: 'center', width: 'calc(100% - 24px)',
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: 'rgba(245,158,11,0.12)', border: '2px solid var(--warning)',
+          borderRadius: 'var(--radius)', padding: '10px 14px',
+          fontSize: 13, lineHeight: 1.45,
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+          <div style={{ flex: 1, wordBreak: 'break-word' }}>
+            <div style={{ fontWeight: 800, color: 'var(--warning)', marginBottom: 4 }}>
+              Some data didn't load cleanly — totals may be off
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {store.loadWarnings.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          </div>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={store.clearLoadWarnings}
+            style={{ flexShrink: 0 }} title="Dismiss">✕</button>
+        </div>
+      )}
+
       {/* Page content */}
       <main style={{ flex: 1, paddingBottom: 72 }}>
         {tab === 'game'      && <GameNightPage

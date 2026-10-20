@@ -14,7 +14,8 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jalec\\\\Documents\\\\sheepshead-app\" -Recurse -File)",
       "Bash(Select-Object FullName)",
       "Bash(Sort-Object FullName)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "PowerShell(node \"C:\\\\Users\\\\jalec\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-jalec-Documents-sheepshead-app\\\\7a32d906-f64f-4406-aa86-c72a9f8d27ac\\\\scratchpad\\\\check-mapping.mjs\" \"C:\\\\Users\\\\jalec\\\\Documents\\\\sheepshead-app\"; \"exit=$LASTEXITCODE\")"
     ]
   }
 }

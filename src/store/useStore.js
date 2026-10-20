@@ -118,6 +118,7 @@ export function useStore() {
   const [state,    setState]    = useState(initState)
   const [isLoading, setIsLoading] = useState(false)
   const [syncError, setSyncError] = useState(null)
+  const [writeError, setWriteError] = useState(null)
 
   // Mirror of latest state for reading inside async callbacks
   // (React batches setState, so we can't rely on closure-captured `state`).
@@ -132,6 +133,26 @@ export function useStore() {
       return next
     })
   }, [])
+
+  /**
+   * Run a Supabase write before touching local state. On failure: log the raw
+   * Supabase error, surface a red banner, and throw so the caller keeps its form
+   * open. Callers must only update local state after this resolves.
+   */
+  const persist = useCallback(async (label, fn) => {
+    if (!hasSupabase) return
+    try {
+      await fn()
+    } catch (err) {
+      console.error(`[Supabase] ${label} failed:`, err)
+      const detail = err?.message || err?.details || String(err)
+      const msg = `${label} failed — NOT saved. ${detail}`
+      setWriteError(msg)
+      throw new Error(msg)
+    }
+  }, [])
+
+  const clearWriteError = useCallback(() => setWriteError(null), [])
 
   // ── Initial Supabase load ────────────────────────────────────────────────
   useEffect(() => {
@@ -327,7 +348,7 @@ export function useStore() {
   }, [update])
 
   // ── Session actions ──────────────────────────────────────────────────────
-  const startSession = useCallback((playerIds, dealerIndex = 0) => {
+  const startSession = useCallback(async (playerIds, dealerIndex = 0) => {
     const session = {
       id:                 crypto.randomUUID(),
       date:               new Date().toISOString(),
@@ -337,35 +358,35 @@ export function useStore() {
       dealerIndex,
       lastRoundRemaining: 0,
     }
+    await persist('Start game night', () => db.createSession(session))
     update(s => ({ ...s, sessions: [...s.sessions, session] }))
-    if (hasSupabase) db.createSession(session).catch(console.error)
     return session.id
-  }, [update])
+  }, [update, persist])
 
-  const endSession = useCallback((sessionId) => {
+  const endSession = useCallback(async (sessionId) => {
+    await persist('Finalize night', () => db.updateSession(sessionId, { active: false }))
     update(s => ({
       ...s,
       sessions: s.sessions.map(sess =>
         sess.id === sessionId ? { ...sess, active: false } : sess
       ),
     }))
-    if (hasSupabase) db.updateSession(sessionId, { active: false }).catch(console.error)
-  }, [update])
+  }, [update, persist])
 
-  const deleteSession = useCallback((sessionId) => {
+  const deleteSession = useCallback(async (sessionId) => {
+    await persist('Delete session', () => db.deleteSession(sessionId))
     update(s => ({ ...s, sessions: s.sessions.filter(sess => sess.id !== sessionId) }))
-    if (hasSupabase) db.deleteSession(sessionId).catch(console.error)
-  }, [update])
+  }, [update, persist])
 
-  const reopenSession = useCallback((sessionId) => {
+  const reopenSession = useCallback(async (sessionId) => {
+    await persist('Reopen night', () => db.updateSession(sessionId, { active: true }))
     update(s => ({
       ...s,
       sessions: s.sessions.map(sess =>
         sess.id === sessionId ? { ...sess, active: true } : sess
       ),
     }))
-    if (hasSupabase) db.updateSession(sessionId, { active: true }).catch(console.error)
-  }, [update])
+  }, [update, persist])
 
   /**
    * Add a hand. Automatically:
@@ -374,10 +395,9 @@ export function useStore() {
    *  - advances dealerIndex
    *  - decrements lastRoundRemaining
    */
-  const addHand = useCallback((sessionId, hand) => {
-    // Pre-read session from ref so we can send to Supabase after the sync update
+  const addHand = useCallback(async (sessionId, hand) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
-    if (!sess) return
+    if (!sess) throw new Error('Session not found — hand NOT saved.')
 
     const leftPlayers     = sess.leftPlayers ?? []
     const activeSeatOrder = sess.players.filter(p => !leftPlayers.includes(p))
@@ -404,27 +424,38 @@ export function useStore() {
       dealerPid,
     }
 
+    await persist(hand.handType === 'fup' ? 'Save F-Up' : 'Save hand',
+      () => db.addHand(fullHand, sessionId, sess.players))
+
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
         if (session.id !== sessionId) return session
         return {
           ...session,
-          hands:              [...session.hands, fullHand],
+          // The realtime INSERT echo may have landed first — replace, don't duplicate
+          hands:              [...session.hands.filter(h => h.id !== fullHand.id), fullHand],
           dealerIndex:        nextDealer,
           lastRoundRemaining: nextLR,
         }
       }),
     }))
+  }, [update, persist])
 
-    if (hasSupabase) {
-      db.addHand(fullHand, sessionId, sess.players).catch(console.error)
-    }
-  }, [update])
-
-  const updateHand = useCallback((sessionId, handId, handData) => {
+  const updateHand = useCallback(async (sessionId, handId, handData) => {
     const sess        = stateRef.current.sessions.find(s => s.id === sessionId)
     const existingHand = sess?.hands.find(h => h.id === handId)
+    if (!sess || !existingHand) throw new Error('Hand not found — changes NOT saved.')
+
+    const finalHand = {
+      id:         handId,
+      handNumber: existingHand.handNumber,
+      lastRound:  existingHand.lastRound,
+      dealerPid:  existingHand.dealerPid,
+      ...handData,
+    }
+    await persist(handData.handType === 'fup' ? 'Update F-Up' : 'Update hand',
+      () => db.addHand(finalHand, sessionId, sess.players))
 
     update(s => ({
       ...s,
@@ -440,20 +471,10 @@ export function useStore() {
         }
       }),
     }))
+  }, [update, persist])
 
-    if (hasSupabase && sess && existingHand) {
-      const finalHand = {
-        id:         handId,
-        handNumber: existingHand.handNumber,
-        lastRound:  existingHand.lastRound,
-        dealerPid:  existingHand.dealerPid,
-        ...handData,
-      }
-      db.addHand(finalHand, sessionId, sess.players).catch(console.error)
-    }
-  }, [update])
-
-  const deleteHand = useCallback((sessionId, handId) => {
+  const deleteHand = useCallback(async (sessionId, handId) => {
+    await persist('Delete hand', () => db.deleteHand(handId))
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
@@ -464,8 +485,7 @@ export function useStore() {
         return { ...session, hands }
       }),
     }))
-    if (hasSupabase) db.deleteHand(handId).catch(console.error)
-  }, [update])
+  }, [update, persist])
 
   /** Start the Last Round countdown (one hand per active player). */
   const activateLastRound = useCallback((sessionId) => {
@@ -481,25 +501,21 @@ export function useStore() {
   }, [update])
 
   /** Append a player from the roster to an active session (up to 6 total). */
-  const addSessionPlayer = useCallback((sessionId, playerId) => {
+  const addSessionPlayer = useCallback(async (sessionId, playerId) => {
+    const sess = stateRef.current.sessions.find(s => s.id === sessionId)
+    if (!sess || sess.players.includes(playerId) || sess.players.length >= 6) return
+    const newPlayers = [...sess.players, playerId]
+    await persist('Add player', () => db.updateSession(sessionId, { players: newPlayers }))
     update(s => ({
       ...s,
-      sessions: s.sessions.map(sess => {
-        if (sess.id !== sessionId) return sess
-        if (sess.players.includes(playerId) || sess.players.length >= 6) return sess
-        return { ...sess, players: [...sess.players, playerId] }
-      }),
+      sessions: s.sessions.map(session =>
+        session.id === sessionId ? { ...session, players: newPlayers } : session
+      ),
     }))
-    if (hasSupabase) {
-      const sess = stateRef.current.sessions.find(s => s.id === sessionId)
-      if (sess && !sess.players.includes(playerId) && sess.players.length < 6) {
-        db.updateSession(sessionId, { players: [...sess.players, playerId] }).catch(console.error)
-      }
-    }
-  }, [update])
+  }, [update, persist])
 
   /** Insert a roster player at a specific seat position (up to 6 total). */
-  const insertSessionPlayer = useCallback((sessionId, playerId, seatIndex) => {
+  const insertSessionPlayer = useCallback(async (sessionId, playerId, seatIndex) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
     if (!sess || sess.players.includes(playerId) || sess.players.length >= 6) return
 
@@ -513,6 +529,7 @@ export function useStore() {
       ? sess.dealerIndex + 1
       : sess.dealerIndex
 
+    await persist('Add player', () => db.updateSession(sessionId, { players: newPlayers }))
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
@@ -520,10 +537,7 @@ export function useStore() {
         return { ...session, players: newPlayers, dealerIndex: newDealerIndex }
       }),
     }))
-    if (hasSupabase) {
-      db.updateSession(sessionId, { players: newPlayers }).catch(console.error)
-    }
-  }, [update])
+  }, [update, persist])
 
   /** Mark a player as having left the session. Their column/history is preserved. */
   const markPlayerLeft = useCallback((sessionId, playerId) => {
@@ -549,41 +563,43 @@ export function useStore() {
   }, [update])
 
   /** Insert a hand at a specific position in the hand history. Renumbers subsequent hands. */
-  const insertHandAt = useCallback((sessionId, handCore, afterHandNumber) => {
+  const insertHandAt = useCallback(async (sessionId, handCore, afterHandNumber) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
-    if (!sess) return
+    if (!sess) throw new Error('Session not found — hand NOT saved.')
 
     // afterHandNumber === 0: insert before hand #1; afterHandNumber === N: insert after hand #N
-    const insertIdx = afterHandNumber
-
     const newHand = { ...handCore, id: crypto.randomUUID(), handNumber: afterHandNumber + 1 }
-    const before  = sess.hands.slice(0, insertIdx)
-    const after   = sess.hands.slice(insertIdx)
-    const renumberedAfter = after.map((h, i) => ({ ...h, handNumber: afterHandNumber + 2 + i }))
-    const newHands = [...before, newHand, ...renumberedAfter]
+    const renumberedAfter = sess.hands
+      .slice(afterHandNumber)
+      .map((h, i) => ({ ...h, handNumber: afterHandNumber + 2 + i }))
 
+    // One upsert so the new hand and the renumbering land together or not at all
+    await persist('Insert hand',
+      () => db.upsertHands([newHand, ...renumberedAfter], sessionId, sess.players))
+
+    const renumbered = new Map(renumberedAfter.map(h => [h.id, h]))
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
         if (session.id !== sessionId) return session
-        return { ...session, hands: newHands }
+        const hands = [
+          ...session.hands.filter(h => h.id !== newHand.id).map(h => renumbered.get(h.id) ?? h),
+          newHand,
+        ].sort((a, b) => a.handNumber - b.handNumber)
+        return { ...session, hands }
       }),
     }))
-
-    if (hasSupabase) {
-      db.addHand(newHand, sessionId, sess.players).catch(console.error)
-      renumberedAfter.forEach(h => db.addHand(h, sessionId, sess.players).catch(console.error))
-    }
-  }, [update])
+  }, [update, persist])
 
   /** Reorder the session seat order. Updates dealerIndex to track the same dealer. */
-  const reorderSessionPlayers = useCallback((sessionId, newOrder) => {
+  const reorderSessionPlayers = useCallback(async (sessionId, newOrder) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
     if (!sess) return
 
     const currentDealerPid = sess.players[sess.dealerIndex]
     const newDealerIndex   = newOrder.indexOf(currentDealerPid)
 
+    await persist('Reorder players', () => db.updateSession(sessionId, { players: newOrder }))
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
@@ -595,10 +611,7 @@ export function useStore() {
         }
       }),
     }))
-    if (hasSupabase) {
-      db.updateSession(sessionId, { players: newOrder }).catch(console.error)
-    }
-  }, [update])
+  }, [update, persist])
 
   // ── Computed helpers ─────────────────────────────────────────────────────
   const getPlayer = useCallback((id) => state.players.find(p => p.id === id), [state.players])
@@ -710,6 +723,7 @@ export function useStore() {
     sessions: state.sessions,
     isLoading,
     syncError,
+    writeError, clearWriteError,
     addPlayer, updatePlayer, removePlayer,
     startSession, endSession, deleteSession, reopenSession,
     addHand, updateHand, deleteHand, insertHandAt,

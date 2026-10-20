@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Avatar from './Avatar'
+import SaveErrorBox from './SaveErrorBox'
 
 export default function FupModal({
   players,          // active player IDs for this hand (dealer excluded for 6-player)
@@ -18,6 +19,8 @@ export default function FupModal({
   const [applyMultiplier, setApplyMultiplier] = useState(false)
   const [advanceDealer,   setAdvanceDealer]   = useState(true)
   const [note,            setNote]            = useState(iv.note ?? '')
+  const [saving,          setSaving]          = useState(false)
+  const [saveError,       setSaveError]       = useState(null)
 
   const currentMultiplier = lastRoundActive ? 2 : 1
   const effectiveAmount   = applyMultiplier ? amountPerPlayer * currentMultiplier : amountPerPlayer
@@ -30,16 +33,25 @@ export default function FupModal({
 
   const canSubmit = offenderId !== '' && amountPerPlayer > 0 && others.length > 0
 
-  const handleSubmit = () => {
-    if (!canSubmit) return
-    onSubmit({
-      handType:           'fup',
-      offenderId,
-      note:               note.trim(),
-      amount:             effectiveAmount,
-      scores:             previewScores,
-      skipDealerAdvance:  !advanceDealer,
-    })
+  const handleSubmit = async () => {
+    if (!canSubmit || saving) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      // Parent closes the modal only after the save succeeds
+      await onSubmit({
+        handType:           'fup',
+        offenderId,
+        note:               note.trim(),
+        amount:             effectiveAmount,
+        multiplier:         applyMultiplier ? currentMultiplier : 1,
+        scores:             previewScores,
+        skipDealerAdvance:  !advanceDealer,
+      })
+    } catch (err) {
+      setSaveError(err?.message || String(err))
+      setSaving(false)
+    }
   }
 
   const LBL = { fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }
@@ -185,11 +197,14 @@ export default function FupModal({
         </div>
 
         {/* Footer */}
-        <div className="modal-footer" style={{ gap: 10, justifyContent: 'flex-end' }}>
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-danger btn-lg" onClick={handleSubmit} disabled={!canSubmit}>
-            {isEditing ? 'Update F-Up' : 'Log F-Up'}
-          </button>
+        <div className="modal-footer" style={{ flexDirection: 'column', gap: 8, alignItems: 'stretch' }}>
+          {saveError && <SaveErrorBox message={saveError} />}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="btn btn-danger btn-lg" onClick={handleSubmit} disabled={!canSubmit || saving}>
+              {saving ? 'Saving…' : saveError ? 'Retry' : isEditing ? 'Update F-Up' : 'Log F-Up'}
+            </button>
+          </div>
         </div>
 
       </div>

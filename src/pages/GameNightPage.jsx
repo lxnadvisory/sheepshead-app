@@ -23,6 +23,13 @@ function useIsWide(bp = 1080) {
 function SetupView({ players, getDisplayName, startSession }) {
   const [selected,     setSelected]     = useState([])
   const [dealerIndex,  setDealerIndex]  = useState(0)
+  const [starting,     setStarting]     = useState(false)
+
+  // On failure the store shows the red banner; just re-enable the button
+  const handleStart = () => {
+    setStarting(true)
+    startSession(selected, dealerIndex).catch(() => setStarting(false))
+  }
 
   const toggle = (id) => setSelected(s =>
     s.includes(id) ? s.filter(x => x !== id) : s.length < 6 ? [...s, id] : s
@@ -105,8 +112,8 @@ function SetupView({ players, getDisplayName, startSession }) {
       )}
 
       <button className="btn btn-primary btn-lg" style={{ width: '100%' }}
-        disabled={selected.length < 5} onClick={() => startSession(selected, dealerIndex)}>
-        Start Game Night — {selected.length} Players
+        disabled={selected.length < 5 || starting} onClick={handleStart}>
+        {starting ? 'Starting…' : `Start Game Night — ${selected.length} Players`}
       </button>
     </div>
   )
@@ -219,7 +226,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {addablePlayers.map(p => (
               <button key={p.id} className="toggle-btn"
-                onClick={() => { addSessionPlayer(session.id, p.id); setShowAddPlyr(false) }}
+                onClick={() => { addSessionPlayer(session.id, p.id).catch(() => {}); setShowAddPlyr(false) }}
                 style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Avatar player={p} size={18} />
                 {getDisplayName(p.id)}
@@ -326,7 +333,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
               if (h.handType === 'fup') { setEditingFupHand(h); setShowFup(true) }
               else setEditingHand(h)
             }}
-            onDeleteHand={(handId) => deleteHand(session.id, handId)}
+            onDeleteHand={(handId) => deleteHand(session.id, handId).catch(() => {})}
           />
         </div>
       )}
@@ -399,8 +406,8 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
           currentDealer={currentDealer}
-          onSubmit={(hand) => {
-            addHand(session.id, hand)
+          onSubmit={async (hand) => {
+            await addHand(session.id, hand)   // throws on failed save → modal stays open
             setShowModal(false)
             const t = pickToast(hand)
             if (t) setToast({ ...t, key: Date.now() })
@@ -423,8 +430,8 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
           currentDealer={currentDealer}
-          onSubmit={(hand) => {
-            updateHand(session.id, editingHand.id, { ...hand, scores: hand.scores })
+          onSubmit={async (hand) => {
+            await updateHand(session.id, editingHand.id, { ...hand, scores: hand.scores })
             setEditingHand(null)
           }}
           onClose={() => setEditingHand(null)}
@@ -444,8 +451,8 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
           currentDealer={currentDealer}
-          onSubmit={({ insertAfterHandNumber, dealerPid: manualDealer, ...handCore }) => {
-            insertHandAt(session.id, { ...handCore, dealerPid: manualDealer }, insertAfterHandNumber)
+          onSubmit={async ({ insertAfterHandNumber, dealerPid: manualDealer, ...handCore }) => {
+            await insertHandAt(session.id, { ...handCore, dealerPid: manualDealer }, insertAfterHandNumber)
             setShowManualAdd(false)
           }}
           onClose={() => setShowManualAdd(false)}
@@ -460,11 +467,11 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           getDisplayName={getDisplayName}
           lastRoundActive={lastRoundActive}
           initialValues={editingFupHand ?? undefined}
-          onSubmit={(data) => {
+          onSubmit={async (data) => {
             if (editingFupHand) {
-              updateHand(session.id, editingFupHand.id, data)
+              await updateHand(session.id, editingFupHand.id, data)
             } else {
-              addHand(session.id, data)
+              await addHand(session.id, data)
             }
             setShowFup(false)
             setEditingFupHand(null)
@@ -480,9 +487,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           allRosterPlayers={allRosterPlayers}
           getPlayer={getPlayer}
           getDisplayName={getDisplayName}
-          onInsertPlayer={(pid, idx) => insertSessionPlayer(session.id, pid, idx)}
+          onInsertPlayer={(pid, idx) => insertSessionPlayer(session.id, pid, idx).catch(() => {})}
           onMarkLeft={(pid) => markPlayerLeft(session.id, pid)}
-          onReorder={(newOrder) => reorderSessionPlayers(session.id, newOrder)}
+          onReorder={(newOrder) => reorderSessionPlayers(session.id, newOrder).catch(() => {})}
           onClose={() => setShowManage(false)}
         />
       )}
@@ -502,7 +509,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowFinalizeConfirm(false)}>Cancel</button>
-              <button className="btn btn-danger" onClick={() => { endSession(session.id); setShowFinalizeConfirm(false) }}>
+              <button className="btn btn-danger" onClick={() => {
+                endSession(session.id).then(() => setShowFinalizeConfirm(false), () => {})
+              }}>
                 Finalize
               </button>
             </div>
@@ -576,13 +585,15 @@ function PastSessionCard({ session, getPlayer, getDisplayName, getSessionTotals,
             {reopenConfirm ? (
               <>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Reopen this session?</span>
-                <button className="btn btn-primary btn-sm" onClick={() => { reopenSession(session.id); setExpanded(false); setReopenConfirm(false) }}>Confirm Reopen</button>
+                <button className="btn btn-primary btn-sm" onClick={() => {
+                  reopenSession(session.id).then(() => { setExpanded(false); setReopenConfirm(false) }, () => {})
+                }}>Confirm Reopen</button>
                 <button className="btn btn-ghost btn-sm" onClick={() => setReopenConfirm(false)}>Cancel</button>
               </>
             ) : (
               <>
                 <button className="btn btn-ghost btn-sm" onClick={() => setReopenConfirm(true)}>Reopen Night</button>
-                <button className="btn btn-danger btn-sm" onClick={() => onDelete(session.id)}>Delete Session</button>
+                <button className="btn btn-danger btn-sm" onClick={() => onDelete(session.id).catch(() => {})}>Delete Session</button>
               </>
             )}
           </div>
@@ -605,9 +616,9 @@ export default function GameNightPage({
   const [backupSession, setBackupSession] = useState(null)
   const activeSession = getActiveSession()
 
-  const handleEndSession = (sessionId) => {
+  const handleEndSession = async (sessionId) => {
     const sess = sessions.find(s => s.id === sessionId)
-    endSession(sessionId)
+    await endSession(sessionId)
     if (sess) setBackupSession(sess)
   }
 

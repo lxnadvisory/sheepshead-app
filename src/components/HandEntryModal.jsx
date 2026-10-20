@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { calculateHandScores, getTierLabel, getMultiplier, verifyConservation } from '../utils/scoring'
 import { parseVoiceCommand } from '../utils/voiceParser'
 import Avatar from './Avatar'
+import SaveErrorBox from './SaveErrorBox'
 
 const DOUBLER_STEPS = [1, 2, 4, 8, 16]
 const COUNTDOWN_SECS = 10
@@ -122,6 +123,22 @@ export default function HandEntryModal({
     if (next) { setPartner(''); setRecrackers([]) }
   }
 
+  // ── Save ──────────────────────────────────────────────────────────────────
+  // Parent closes the modal only after the save succeeds; on failure the
+  // form stays filled in so the hand can be retried.
+  const [saving,    setSaving]    = useState(false)
+  const [saveError, setSaveError] = useState(null)
+  const submit = useCallback(async (data) => {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await onSubmit(data)
+    } catch (err) {
+      setSaveError(err?.message || String(err))
+      setSaving(false)
+    }
+  }, [onSubmit])
+
   // ── Countdown ─────────────────────────────────────────────────────────────
   const cancelCountdown = useCallback(() => {
     setAutoPost(null); setPaused(false); setPendingCountdown(false)
@@ -138,8 +155,8 @@ export default function HandEntryModal({
   const handDataRef = useRef(null)
   useEffect(() => {
     if (autoPost !== 0) return
-    if (handDataRef.current) { onSubmit(handDataRef.current); setAutoPost(null) }
-  }, [autoPost, onSubmit])
+    if (handDataRef.current) { submit(handDataRef.current); setAutoPost(null) }
+  }, [autoPost, submit])
 
   // Pause when tab hidden
   useEffect(() => {
@@ -184,16 +201,16 @@ export default function HandEntryModal({
   }, [pendingCountdown, canSubmit, isEditing, isManualAdd])
 
   const handleSubmit = () => {
-    if (!canSubmit) return
+    if (!canSubmit || saving) return
     if (!conservationOk) {
       alert('Scoring error: hand deltas do not sum to 0. Please report this bug.')
       return
     }
     cancelCountdown()
     if (isManualAdd) {
-      onSubmit({ ...handData, scores: preview, dealerPid: manualDealerPid, insertAfterHandNumber })
+      submit({ ...handData, scores: preview, dealerPid: manualDealerPid, insertAfterHandNumber })
     } else {
-      onSubmit({ ...handData, scores: preview })
+      submit({ ...handData, scores: preview })
     }
   }
 
@@ -777,19 +794,20 @@ export default function HandEntryModal({
               </button>
             </div>
           )}
+          {saveError && <SaveErrorBox message={saveError} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+            <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
             <button
               className="btn btn-primary btn-lg"
               onClick={handleSubmit}
-              disabled={!canSubmit}
+              disabled={!canSubmit || saving}
               style={{
                 animation: autoPost !== null ? 'livePulse 1.5s infinite' : 'none',
                 boxShadow: autoPost !== null ? '0 0 18px rgba(99,102,241,0.45)' : undefined,
                 transition: 'box-shadow 0.3s',
               }}
             >
-              {isEditing ? 'Update Hand' : isManualAdd ? 'Insert Hand' : 'Post Hand'}
+              {saving ? 'Saving…' : saveError ? 'Retry' : isEditing ? 'Update Hand' : isManualAdd ? 'Insert Hand' : 'Post Hand'}
             </button>
           </div>
         </div>

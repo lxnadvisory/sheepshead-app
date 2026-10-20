@@ -18,6 +18,12 @@
  *           recrackers[]        ←→  recracked_by (comma-joined)
  *           scores {pid:delta}  ←→  seat_deltas REAL[]  (ordered by seat_order)
  *           seat roles          ←→  seat_roles TEXT[]
+ *
+ * F-Ups (handType 'fup' ←→ hand_type 'FUP') reuse the hands table. The NOT NULL
+ * columns are filled with placeholders: picker_name = offender id, points = 0,
+ * tier = 'FUP', mult = 1 (or the last-round multiplier if it was applied),
+ * offender's seat_role = 'picker'. Always check hand_type before treating a
+ * row as a normal hand.
  */
 
 import { supabase } from './supabase.js'
@@ -139,7 +145,8 @@ export async function getSessions() {
 
 export async function deleteSession(id) {
   // Remove hands first (handles DBs without CASCADE)
-  await supabase.from('hands').delete().eq('session_id', id)
+  const { error: handsError } = await supabase.from('hands').delete().eq('session_id', id)
+  if (handsError) throw handsError
   const { error } = await supabase.from('sessions').delete().eq('id', id)
   if (error) throw error
 }
@@ -159,6 +166,30 @@ export function dbRowToHand(row, seatOrder) {
     seatOrder.forEach((pid, i) => {
       scores[pid] = row.seat_deltas[i] ?? 0
     })
+  }
+  const isFup = String(row.hand_type || '').toLowerCase() === 'fup'
+  if (isFup) {
+    return {
+      id:           row.id,
+      handNumber:   row.hand_number,
+      handType:     'fup',
+      offenderId:   row.offender_id || row.picker_name || null,
+      note:         row.note        || null,
+      // amount isn't stored; every non-offender receives the same delta
+      amount:       Math.max(0, ...Object.values(scores)),
+      multiplier:   row.mult ?? 1,
+      dealerPid:    row.dealer_name || null,
+      scores,
+      picker:       null,
+      partner:      null,
+      isLoner:      false,
+      pickerPoints: null,
+      crackers:     [],
+      recrackers:   [],
+      blitzes:      {},
+      doublerCount: 0,
+      lastRound:    false,
+    }
   }
   return {
     id:             row.id,
@@ -185,7 +216,39 @@ export function dbRowToHand(row, seatOrder) {
   }
 }
 
+function fupToDb(hand, sessionId, seatOrder) {
+  return {
+    id:           hand.id,
+    session_id:   sessionId,
+    hand_number:  hand.handNumber,
+    picker_name:  hand.offenderId,
+    partner_name: null,
+    is_alone:     false,
+    points:       0,
+    tier:         'FUP',
+    mult:         hand.multiplier ?? 1,
+    seat_deltas:  seatOrder.map(pid => hand.scores?.[pid] ?? 0),
+    seat_roles:   seatOrder.map(pid => {
+      if (pid === hand.offenderId) return 'picker'
+      if (pid === hand.dealerPid)  return 'out'
+      return 'opp'
+    }),
+    dealer_name:  hand.dealerPid || null,
+    shed_clean:   false,
+    no_tricks:    false,
+    smith_rule:   false,
+    cracked_by:   '',
+    recracked_by: '',
+    blitzes:      {},
+    hand_type:    'FUP',
+    offender_id:  hand.offenderId,
+    note:         hand.note || null,
+  }
+}
+
 function handToDb(hand, sessionId, seatOrder) {
+  if (hand.handType === 'fup') return fupToDb(hand, sessionId, seatOrder)
+
   const seatDeltas = seatOrder.map(pid => hand.scores?.[pid] ?? 0)
   const seatRoles  = seatOrder.map(pid => {
     if (pid === hand.dealerPid)              return 'out'
@@ -220,9 +283,14 @@ function handToDb(hand, sessionId, seatOrder) {
 }
 
 export async function addHand(hand, sessionId, seatOrder) {
+  return upsertHands([hand], sessionId, seatOrder)
+}
+
+/** Upsert several hands in one statement — all succeed or none do. */
+export async function upsertHands(hands, sessionId, seatOrder) {
   const { error } = await supabase
     .from('hands')
-    .upsert(handToDb(hand, sessionId, seatOrder))
+    .upsert(hands.map(h => handToDb(h, sessionId, seatOrder)))
   if (error) throw error
 }
 

@@ -171,6 +171,24 @@ export default function App() {
         </div>
       </header>
 
+      {/* Failed Supabase write — stays until dismissed */}
+      {store.writeError && (
+        <div role="alert" style={{
+          position: 'fixed', top: 12, left: 12, right: 12, zIndex: 1100,
+          maxWidth: 640, margin: '0 auto',
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: '#7f1d1d', border: '2px solid var(--danger)',
+          borderRadius: 'var(--radius)', padding: '10px 14px',
+          color: '#fff', fontSize: 13, fontWeight: 600, lineHeight: 1.45,
+          boxShadow: 'var(--shadow-lg)',
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>⛔</span>
+          <span style={{ flex: 1, wordBreak: 'break-word' }}>{store.writeError}</span>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={store.clearWriteError}
+            style={{ color: '#fff', flexShrink: 0 }} title="Dismiss">✕</button>
+        </div>
+      )}
+
       {/* Page content */}
       <main style={{ flex: 1, paddingBottom: 72 }}>
         {tab === 'game'      && <GameNightPage

@@ -2,39 +2,40 @@ import { useMemo } from 'react'
 import Avatar from './Avatar'
 
 // ── Streak helpers ────────────────────────────────────────────────────────────
+// First icon appears only after this many consecutive wins/losses.
+// Increase to 2 to lower the threshold; set to 1 to show after every single win/loss.
+export const STREAK_MIN = 3
+
 export function computeStreaks(hands, players) {
   const streaks = {}
   players.forEach(pid => { streaks[pid] = 0 })
   hands.forEach(hand => {
+    if (hand.handType === 'fup') return          // F-Ups don't affect streaks
     players.forEach(pid => {
-      if (pid === hand.dealerPid) return   // sit-out hands don't break streaks
+      if (pid === hand.dealerPid) return          // sit-out doesn't affect streak
       const delta = hand.scores?.[pid] ?? 0
       if (delta > 0)      streaks[pid] = streaks[pid] > 0 ? streaks[pid] + 1 : 1
       else if (delta < 0) streaks[pid] = streaks[pid] < 0 ? streaks[pid] - 1 : -1
-      else                streaks[pid] = 0
+      // delta === 0: no change — neither breaks nor extends the streak
     })
   })
   return streaks
 }
 
+// Icon ladders — index 0 = STREAK_MIN, each additional hand advances one step.
+const HOT_ICONS   = ['🔥', '🔥🔥', '🌶️', '🫠', '☀️', '👑']
+const HOT_COLORS  = ['#ffbb00', '#ff9f00', '#ff4400', '#ff7700', '#ff6600', '#f59e0b']
+const HOT_BG      = ['rgba(255,187,0,0.08)', 'rgba(255,159,0,0.10)', 'rgba(255,68,0,0.12)', 'rgba(255,119,0,0.13)', 'rgba(255,102,0,0.15)', 'rgba(245,158,11,0.18)']
+const COLD_ICONS  = ['❄️', '🐧', '🧊', '⛄', '🥶', '☠️']
+const COLD_COLORS = ['#99bbff', '#77aaff', '#5599ff', '#4466ff', '#6644ee', '#7c3aed']
+const COLD_BG     = ['rgba(153,187,255,0.07)', 'rgba(119,170,255,0.10)', 'rgba(85,153,255,0.12)', 'rgba(68,102,255,0.13)', 'rgba(100,68,238,0.15)', 'rgba(124,58,237,0.18)']
+
 export function streakStyle(n) {
   const abs = Math.abs(n)
-  if (n === 0) return null
-  if (n > 0) {
-    if (abs >= 6) return { icon: '👑',  color: '#f59e0b', bg: 'rgba(245,158,11,0.18)' }
-    if (abs === 5) return { icon: '☀️', color: '#ff6600', bg: 'rgba(255,102,0,0.15)' }
-    if (abs === 4) return { icon: '🫠', color: '#ff7700', bg: 'rgba(255,119,0,0.13)' }
-    if (abs === 3) return { icon: '🌶️', color: '#ff4400', bg: 'rgba(255,68,0,0.12)' }
-    if (abs === 2) return { icon: '🔥🔥', color: '#ff9f00', bg: 'rgba(255,159,0,0.10)' }
-    return               { icon: '🔥',  color: '#ffbb00', bg: 'rgba(255,187,0,0.08)' }
-  } else {
-    if (abs >= 6) return { icon: '☠️',  color: '#7c3aed', bg: 'rgba(124,58,237,0.18)' }
-    if (abs === 5) return { icon: '🥶', color: '#6644ee', bg: 'rgba(100,68,238,0.15)' }
-    if (abs === 4) return { icon: '⛄', color: '#4466ff', bg: 'rgba(68,102,255,0.13)' }
-    if (abs === 3) return { icon: '🧊', color: '#5599ff', bg: 'rgba(85,153,255,0.12)' }
-    if (abs === 2) return { icon: '🐧', color: '#77aaff', bg: 'rgba(119,170,255,0.10)' }
-    return               { icon: '❄️', color: '#99bbff', bg: 'rgba(153,187,255,0.07)' }
-  }
+  if (abs < STREAK_MIN) return null
+  const idx = Math.min(abs - STREAK_MIN, 5)
+  if (n > 0) return { icon: HOT_ICONS[idx],  color: HOT_COLORS[idx],  bg: HOT_BG[idx]  }
+  return             { icon: COLD_ICONS[idx], color: COLD_COLORS[idx], bg: COLD_BG[idx] }
 }
 
 // ── Stat computation ──────────────────────────────────────────────────────────
@@ -167,8 +168,8 @@ export default function InGameStats({ session, getPlayer, getDisplayName }) {
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{dn(pid)}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  {abs >= 2 && <span style={{ fontSize: 11, fontWeight: 700, color: ss?.color }}>{abs}×</span>}
-                  <span style={{ fontSize: abs >= 3 ? 15 : 12 }}>
+                  {ss && <span style={{ fontSize: 11, fontWeight: 700, color: ss.color }}>{abs}×</span>}
+                  <span style={{ fontSize: ss ? 16 : 12 }}>
                     {ss ? ss.icon : <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>—</span>}
                   </span>
                 </div>

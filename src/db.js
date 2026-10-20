@@ -175,6 +175,9 @@ export function dbRowToHand(row, seatOrder) {
     recrackers:     row.recracked_by  ? row.recracked_by.split(',').filter(Boolean)  : [],
     blitzes:        row.blitzes       || {},
     scores,
+    handType:   row.hand_type   || null,
+    offenderId: row.offender_id || null,
+    note:       row.note        || null,
     // doublerCount and lastRound are not stored in the DB schema.
     // lastRound is cosmetic; doublerCount is not needed to display stored scores.
     doublerCount: 0,
@@ -210,6 +213,9 @@ function handToDb(hand, sessionId, seatOrder) {
     cracked_by:   (hand.crackers   || []).join(','),
     recracked_by: (hand.recrackers || []).join(','),
     blitzes:      hand.blitzes || {},
+    hand_type:    hand.handType   || null,
+    offender_id:  hand.offenderId || null,
+    note:         hand.note       || null,
   }
 }
 

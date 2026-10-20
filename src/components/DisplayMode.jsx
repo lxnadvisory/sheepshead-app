@@ -139,9 +139,9 @@ export default function DisplayMode({ session, getPlayer, getDisplayName, onExit
   const leaderId    = (!isTied && topTotal > 0) ? sorted[0] : null
 
   // Card sizing — scales with player count and viewport width
-  const avatarSz = wide ? (numPlayers >= 6 ? 80 : 100) : 56
-  const scoreSz  = wide ? (numPlayers >= 6 ? 54 : 66)  : 38
-  const nameSz   = wide ? (numPlayers >= 6 ? 15 : 17)  : 13
+  const avatarSz = wide ? (numPlayers >= 6 ? 120 : 140) : 80
+  const scoreSz  = wide ? (numPlayers >= 6 ? 54  : 66)  : 38
+  const nameSz   = wide ? (numPlayers >= 6 ? 15  : 17)  : 13
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -185,15 +185,19 @@ export default function DisplayMode({ session, getPlayer, getDisplayName, onExit
             else if (pid === lastHand.dealerPid)                         role = 'Out'
           }
 
-          const borderColor = isLead
-            ? 'rgba(245,158,11,0.65)'
+          const isDlr = pid === currentDealer
+
+          const borderColor = isDlr
+            ? 'rgba(139,92,246,0.75)'
+            : isLead ? 'rgba(245,158,11,0.65)'
             : total > 0 ? 'rgba(34,197,94,0.35)' : total < 0 ? 'rgba(239,68,68,0.3)' : 'var(--border)'
 
           const cardBg = ss?.bg
-            ?? (isLead ? 'rgba(245,158,11,0.07)' : 'var(--bg-elevated)')
+            ?? (isDlr ? 'rgba(139,92,246,0.06)' : isLead ? 'rgba(245,158,11,0.07)' : 'var(--bg-elevated)')
 
-          const shadow = isLead
-            ? '0 0 28px rgba(245,158,11,0.2)'
+          const shadow = isDlr
+            ? '0 0 28px rgba(139,92,246,0.35)'
+            : isLead ? '0 0 28px rgba(245,158,11,0.2)'
             : isFlash ? '0 0 22px rgba(99,102,241,0.3)' : 'none'
 
           return (
@@ -232,22 +236,34 @@ export default function DisplayMode({ session, getPlayer, getDisplayName, onExit
                 </span>
               )}
 
-              {/* Avatar */}
-              <div style={{ marginTop: isLead ? (wide ? 14 : 10) : 0, flexShrink: 0 }}>
+              {/* Avatar with overlays */}
+              <div style={{ marginTop: isLead ? (wide ? 14 : 10) : 0, flexShrink: 0, position: 'relative' }}>
                 <Avatar player={p} size={avatarSz} style={{ boxShadow: isLead ? '0 0 16px rgba(245,158,11,0.25)' : undefined }} />
+                {/* Dealer eggplant badge */}
+                {isDlr && (
+                  <span style={{
+                    position: 'absolute', bottom: -4, left: -8,
+                    fontSize: wide ? 26 : 20, lineHeight: 1,
+                    filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))',
+                  }}>🍆</span>
+                )}
+                {/* Streak icon overlapping avatar */}
+                {ss && (
+                  <span style={{
+                    position: 'absolute', bottom: -4, right: -8,
+                    fontSize: wide ? 26 : 20, lineHeight: 1,
+                    filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))',
+                  }}>{ss.icon}</span>
+                )}
               </div>
 
               {/* Name */}
-              <div style={{ fontSize: nameSz, fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingInline: 4 }}>
+              <div style={{ fontSize: nameSz, fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingInline: 4, marginTop: 8 }}>
                 {getDisplayName(pid)}
               </div>
 
-              {/* Streak */}
-              {ss ? (
-                <div style={{ fontSize: wide ? 18 : 13, lineHeight: 1 }}>{ss.icon}</div>
-              ) : (
-                <div style={{ height: wide ? 18 : 13 }} />
-              )}
+              {/* Spacer where streak row used to be */}
+              <div style={{ height: 2 }} />
 
               {/* Score — key on total triggers animate-fade when value changes */}
               <div
@@ -307,18 +323,18 @@ export default function DisplayMode({ session, getPlayer, getDisplayName, onExit
               </div>
             )}
 
-            {/* Sitting out (next hand) */}
-            {sittingOutPid && (
-              <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Next: Sitting Out</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Avatar player={getPlayer(sittingOutPid)} size={20} />
-                  <span style={{ fontSize: wide ? 16 : 13, fontWeight: 700, color: 'var(--text-muted)' }}>
-                    {getDisplayName(sittingOutPid)}
-                  </span>
-                </div>
+            {/* Current dealer (always visible) */}
+            <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+                🍆 Dealer{is6Player ? ' / Sitting Out' : ''}
               </div>
-            )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Avatar player={getPlayer(currentDealer)} size={20} />
+                <span style={{ fontSize: wide ? 16 : 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  {getDisplayName(currentDealer)}
+                </span>
+              </div>
+            </div>
           </>
         )}
       </div>

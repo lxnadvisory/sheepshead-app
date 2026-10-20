@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import Scoreboard         from '../components/Scoreboard'
 import HandEntryModal     from '../components/HandEntryModal'
+import FupModal           from '../components/FupModal'
 import ManagePlayersModal from '../components/ManagePlayersModal'
 import Settlement         from '../components/Settlement'
 import InGameStats, { computeStreaks, streakStyle } from '../components/InGameStats'
 import Avatar from '../components/Avatar'
-import HandIcons from '../components/HandIcons'
 import { exportData } from '../utils/backup'
 
 const SEAT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th']
@@ -112,115 +112,6 @@ function SetupView({ players, getDisplayName, startSession }) {
   )
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function isPickerSchneidered(hand) {
-  if (!hand.picker || hand.shedClean) return false
-  return hand.pickerNoTricks || (hand.pickerPoints != null && hand.pickerPoints < 30)
-}
-
-// ── Hand History Item ─────────────────────────────────────────────────────────
-function HandItem({ hand, players, getPlayer, getDisplayName, onDelete, onEdit, forceExpanded }) {
-  const [expanded, setExpanded] = useState(false)
-
-  // When the ledger hand number is clicked, force-expand this card
-  useEffect(() => {
-    if (forceExpanded) setExpanded(true)
-  }, [forceExpanded])
-  const partner = hand.isLoner ? null : getPlayer(hand.partner)
-  const schneidered = isPickerSchneidered(hand)
-
-  // Only keep doubler and legacy blitz/crack (new-format crack/blitz shown as per-player icons)
-  const hasNewCrack   = (hand.crackers?.length ?? 0) > 0
-  const hasNewBlitz   = hand.blitzes && Object.keys(hand.blitzes).length > 0
-  const mults = [
-    (hand.doublerCount > 0 || hand.doubler) && `×${hand.doublerCount > 0 ? Math.pow(2, hand.doublerCount) : 2}`,
-    // Legacy booleans only (no player attribution available)
-    !hasNewCrack && (hand.crack   || false) && 'Crack',
-    !hasNewCrack && !hand.recrackers?.length && (hand.reCrack || false) && 'RC',
-    !hasNewBlitz && (hand.blackBlitz && hand.redBlitz ? 'Blitz' : hand.blackBlitz ? '♠♣ Blitz' : hand.redBlitz ? '♥♦ Blitz' : hand.blitz ? 'Blitz' : null),
-  ].filter(Boolean)
-
-  const specials = [
-    hand.shedClean      && 'Shed Clean',
-    hand.pickerNoTricks && 'No Tricks',
-    hand.isLoner        && 'Loner',
-    hand.lastRound      && 'Last Round',
-  ].filter(Boolean)
-
-  return (
-    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-      <div onClick={() => setExpanded(e => !e)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
-        <span style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: 12, width: 22 }}>#{hand.handNumber}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 700 }}>{getDisplayName(hand.picker)}{schneidered && <span title="Schneidered" style={{ marginLeft: 3 }}>✂️</span>}</span>
-            {partner && <><span style={{ color: 'var(--text-muted)', fontSize: 12 }}>+</span><span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{getDisplayName(hand.partner)}</span></>}
-            {specials.map(s => <span key={s} className="badge badge-warning" style={{ fontSize: 10 }}>{s}</span>)}
-            {mults.map((m, i) => <span key={i} className="badge badge-primary" style={{ fontSize: 10 }}>{m}</span>)}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginTop: 2 }}>
-            {hand.isLoner
-              ? `🐺 Loner — ${hand.pickerPoints ?? '?'} pts`
-              : hand.pickerPoints != null ? `${hand.pickerPoints} pts` : ''}
-          </div>
-        </div>
-        {/* Collapsed score cells with per-player icons */}
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          {players.slice(0, 6).map(pid => {
-            const delta = hand.scores?.[pid] ?? 0
-            return (
-              <div key={pid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 30, flexShrink: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? 'var(--success)' : delta < 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                  {delta > 0 ? `+${delta}` : delta === 0 ? '—' : delta}
-                </span>
-                <HandIcons hand={hand} pid={pid} size={9} showLoner={true} />
-              </div>
-            )
-          })}
-        </div>
-        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
-      </div>
-
-      {expanded && (
-        <div style={{ borderTop: '1px solid var(--border)', padding: '12px 14px', background: 'var(--bg-elevated)' }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-            {players.map(pid => {
-              const p     = getPlayer(pid)
-              const delta = hand.scores?.[pid] ?? 0
-              const isPicker  = pid === hand.picker
-              const isPartner = !hand.isLoner && pid === hand.partner
-              const role  = isPicker ? 'Picker' : isPartner ? 'Partner' : pid === hand.dealerPid ? 'Sat Out' : 'Opp'
-              return (
-                <div key={pid} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 64, opacity: role === 'Sat Out' ? 0.5 : 1 }}>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{role}</span>
-                  <Avatar player={p} size={24} />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span style={{ fontWeight: 700, fontSize: 12 }}>{getDisplayName(pid)}</span>
-                    <HandIcons hand={hand} pid={pid} size={10} showLoner={true} />
-                    {schneidered && isPicker && <span title="Schneidered" style={{ fontSize: 10 }}>✂️</span>}
-                  </div>
-                  {isPicker && hand.pickerPoints != null && (
-                    <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700 }}>
-                      {hand.pickerPoints} pts
-                    </span>
-                  )}
-                  <span style={{ fontSize: 16, fontWeight: 800, color: delta > 0 ? 'var(--success)' : delta < 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                    {delta > 0 ? `+${delta}` : delta === 0 ? '—' : delta}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => onEdit(hand)}>Edit</button>
-            <button className="btn btn-danger btn-sm" onClick={() => onDelete(hand.id)}>Delete Hand</button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Active Game View ──────────────────────────────────────────────────────────
 function pickToast(hand) {
   if (hand.shedClean)      return { msg: 'Prost! 🍺',          color: 'var(--success)' }
@@ -234,31 +125,23 @@ function pickToast(hand) {
   return null
 }
 
-function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, onShowDisplay }) {
-  const [showModal,     setShowModal]     = useState(false)
-  const [showSettle,    setShowSettle]    = useState(false)
-  const [confirmEnd,    setConfirmEnd]    = useState(false)
-  const [showStats,     setShowStats]     = useState(false)
-  const [showAddPlyr,   setShowAddPlyr]   = useState(false)
-  const [showManage,    setShowManage]    = useState(false)
-  const [showManualAdd, setShowManualAdd] = useState(false)
-  const [toast,        setToast]        = useState(null)
-  const [editingHand,  setEditingHand]  = useState(null)   // hand object being edited
-  const [scrollTarget, setScrollTarget] = useState(null)   // { id, ts } — click-from-ledger
-  const [autoEmailOpen, setAutoEmailOpen] = useState(false)
-  const settleAutoShownRef = useRef(false)
-  const handItemRefs = useRef({})
+function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers }) {
+  const [showModal,          setShowModal]          = useState(false)
+  const [showFup,            setShowFup]            = useState(false)
+  const [showSettle,         setShowSettle]         = useState(false)
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false)
+  const [showStats,          setShowStats]          = useState(false)
+  const [showAddPlyr,        setShowAddPlyr]        = useState(false)
+  const [showManage,         setShowManage]         = useState(false)
+  const [showManualAdd,      setShowManualAdd]      = useState(false)
+  const [toast,              setToast]              = useState(null)
+  const [editingHand,        setEditingHand]        = useState(null)
+  const [editingFupHand,     setEditingFupHand]     = useState(null)
   const isWide = useIsWide()
-
-  // When a hand number is clicked in the ledger, scroll to + expand that HandItem
-  useEffect(() => {
-    if (!scrollTarget) return
-    const el = handItemRefs.current[scrollTarget.id]
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [scrollTarget])
 
   const sessionPlayers  = session.players
   const hands           = session.hands
+
   const leftPlayers     = session.leftPlayers ?? []
   // activeSeatOrder: players still participating (excludes anyone who left mid-session)
   const activeSeatOrder = sessionPlayers.filter(p => !leftPlayers.includes(p))
@@ -323,26 +206,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
               🏁 Last Round
             </button>
           )}
-          <button className="btn btn-ghost btn-sm" onClick={() => {
-            const opening = !showSettle
-            setShowSettle(s => !s)
-            if (opening && !settleAutoShownRef.current) {
-              settleAutoShownRef.current = true
-              setAutoEmailOpen(true)
-            }
-          }}>
-            {showSettle ? 'Scoreboard' : 'Settle Up'}
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowSettle(true)}>
+            Settle Up
           </button>
-          {onShowDisplay && (
-            <button className="btn btn-ghost btn-sm" onClick={onShowDisplay} title="Open TV display mode" style={{ gap: 4 }}>
-              <span style={{ fontSize: 13 }}>📺</span>
-              <span>TV</span>
-            </button>
-          )}
-          {!confirmEnd
-            ? <button className="btn btn-danger btn-sm" onClick={() => setConfirmEnd(true)}>End Night</button>
-            : <button className="btn btn-danger btn-sm" onClick={() => endSession(session.id)}>Confirm End</button>
-          }
         </div>
       </div>
 
@@ -365,10 +231,10 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
 
       {/* Hero standings strip — primary visual element */}
       {(() => {
-        const av   = isWide ? 72  : 52
+        const av   = isWide ? 110 : 72
         const nSz  = isWide ? 15  : 13
         const sSz  = isWide ? 44  : 30
-        const pad  = isWide ? '18px 16px 16px' : '12px 10px 10px'
+        const pad  = isWide ? '16px 12px 14px' : '10px 8px 10px'
         return (
           <div style={{ display: 'flex', gap: isWide ? 12 : 8, overflowX: 'auto', paddingBottom: 2 }}>
             {sorted.map(pid => {
@@ -379,20 +245,37 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
               return (
                 <div key={pid} style={{
                   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-                  background: ss?.bg ?? 'var(--bg-elevated)',
-                  border: `2px solid ${total > 0 ? 'rgba(34,197,94,0.4)' : total < 0 ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`,
+                  background: ss?.bg ?? (isDlr ? 'rgba(139,92,246,0.06)' : 'var(--bg-elevated)'),
+                  border: `2px solid ${isDlr
+                    ? 'rgba(139,92,246,0.75)'
+                    : total > 0 ? 'rgba(34,197,94,0.4)' : total < 0 ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`,
                   borderRadius: 'var(--radius)', padding: pad,
-                  minWidth: isWide ? 110 : 80, flexShrink: 0,
+                  minWidth: isWide ? 120 : 88, flexShrink: 0,
                   transition: 'background 0.4s', position: 'relative',
-                  boxShadow: total !== 0 ? `0 4px 16px ${total > 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.1)'}` : 'none',
+                  boxShadow: isDlr
+                    ? '0 0 20px rgba(139,92,246,0.35)'
+                    : total !== 0 ? `0 4px 16px ${total > 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.1)'}` : 'none',
                 }}>
-                  {isDlr && (
-                    <span style={{ position: 'absolute', top: 5, right: 5, fontSize: 10, fontWeight: 800, background: 'rgba(245,158,11,0.25)', color: 'var(--warning)', borderRadius: 3, padding: '2px 5px' }}>D</span>
-                  )}
-                  <Avatar player={p} size={av} />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 7 }}>
+                  {/* Avatar with overlapping streak + dealer icons */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <Avatar player={p} size={av} />
+                    {isDlr && (
+                      <span style={{
+                        position: 'absolute', bottom: -4, left: -8,
+                        fontSize: isWide ? 24 : 18, lineHeight: 1,
+                        filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))',
+                      }}>🍆</span>
+                    )}
+                    {ss && (
+                      <span style={{
+                        position: 'absolute', bottom: -4, right: -8,
+                        fontSize: isWide ? 24 : 18, lineHeight: 1,
+                        filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))',
+                      }}>{ss.icon}</span>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 10 }}>
                     <span style={{ fontSize: nSz, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{getDisplayName(pid)}</span>
-                    {ss && <span style={{ fontSize: nSz - 1 }}>{ss.icon}</span>}
                   </div>
                   <span style={{ fontSize: sSz, fontWeight: 900, lineHeight: 1.1, marginTop: 4, color: total > 0 ? 'var(--success)' : total < 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
                     {total > 0 ? `+${total}` : total === 0 ? '0' : total}
@@ -410,50 +293,42 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
   const MainContent = (
     <div style={{ padding: '0 16px 80px' }}>
       {showSettle ? (
-        <div style={{ paddingTop: 20 }}>
+        <div style={{ paddingTop: 16 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowSettle(false)}>
+              ← Back to Game
+            </button>
+            <button className="btn btn-danger" style={{ flex: 1 }} onClick={() => setShowFinalizeConfirm(true)}>
+              Finalize Night
+            </button>
+          </div>
           <Settlement
             players={sessionPlayers}
             totals={totals}
             getPlayer={getPlayer}
             getDisplayName={getDisplayName}
             session={session}
-            autoOpen={autoEmailOpen}
-            onAutoOpenHandled={() => setAutoEmailOpen(false)}
           />
         </div>
       ) : (
-        <>
-          {hands.length > 0 && (
-            <div className="card" style={{ marginTop: 16, padding: 0, overflow: 'hidden' }}>
-              <Scoreboard
-                players={sessionPlayers}
-                getPlayer={getPlayer}
-                getDisplayName={getDisplayName}
-                hands={hands}
-                totals={totals}
-                dealerPid={currentDealer}
-                leftPlayers={leftPlayers}
-                onHandClick={(handId) => setScrollTarget({ id: handId, ts: Date.now() })}
-                onEditHand={(handId) => setEditingHand(hands.find(h => h.id === handId) ?? null)}
-              />
-            </div>
-          )}
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Hands</div>
-            {hands.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>No hands yet. Log the first hand!</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[...hands].reverse().map(h => (
-                <div key={h.id} ref={el => handItemRefs.current[h.id] = el}>
-                  <HandItem hand={h} players={sessionPlayers} getPlayer={getPlayer} getDisplayName={getDisplayName}
-                    forceExpanded={scrollTarget?.id === h.id}
-                    onDelete={(hid) => deleteHand(session.id, hid)}
-                    onEdit={(hand) => setEditingHand(hand)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
+        <div className="card" style={{ marginTop: 16, padding: 0, overflow: 'hidden' }}>
+          <Scoreboard
+            players={sessionPlayers}
+            getPlayer={getPlayer}
+            getDisplayName={getDisplayName}
+            hands={hands}
+            totals={totals}
+            dealerPid={currentDealer}
+            leftPlayers={leftPlayers}
+            onEditHand={(handId) => {
+              const h = hands.find(x => x.id === handId)
+              if (!h) return
+              if (h.handType === 'fup') { setEditingFupHand(h); setShowFup(true) }
+              else setEditingHand(h)
+            }}
+            onDeleteHand={(handId) => deleteHand(session.id, handId)}
+          />
+        </div>
       )}
     </div>
   )
@@ -474,14 +349,14 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         )}
       </div>
 
-      {/* FAB + Past Hand button */}
+      {/* FAB + Past Hand + F-Up buttons */}
       {!showSettle && (
         <>
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => setShowManualAdd(true)}
             style={{
-              position: 'fixed', bottom: 74, right: 24, zIndex: 100,
+              position: 'fixed', bottom: 120, right: 24, zIndex: 100,
               borderRadius: 20, fontSize: 12,
               background: 'var(--bg-elevated)',
               border: '1px solid var(--border)',
@@ -489,6 +364,21 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
             }}
           >
             + Past Hand
+          </button>
+          <button
+            className="btn btn-sm"
+            onClick={() => { setEditingFupHand(null); setShowFup(true) }}
+            style={{
+              position: 'fixed', bottom: 74, right: 24, zIndex: 100,
+              borderRadius: 20, fontSize: 13, fontWeight: 700,
+              background: 'var(--bg-elevated)',
+              border: '1px solid rgba(239,68,68,0.4)',
+              color: 'var(--danger)',
+              boxShadow: 'var(--shadow)',
+              paddingLeft: 12, paddingRight: 12,
+            }}
+          >
+            💩 F-Up
           </button>
           <button className="btn btn-primary btn-lg" onClick={() => setShowModal(true)}
             style={{ position: 'fixed', bottom: 24, right: 24, borderRadius: 32, boxShadow: '0 4px 20px rgba(99,102,241,0.45)', paddingLeft: 20, paddingRight: 20, zIndex: 100 }}>
@@ -506,6 +396,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           dealerPid={dealerPid}
           lastRoundActive={lastRoundActive}
           handNumber={hands.length + 1}
+          sessionTotals={totals}
+          sessionPlayerIds={sessionPlayers}
+          currentDealer={currentDealer}
           onSubmit={(hand) => {
             addHand(session.id, hand)
             setShowModal(false)
@@ -527,6 +420,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           dealerPid={editingHand.dealerPid}
           handNumber={editingHand.handNumber}
           initialValues={editingHand}
+          sessionTotals={totals}
+          sessionPlayerIds={sessionPlayers}
+          currentDealer={currentDealer}
           onSubmit={(hand) => {
             updateHand(session.id, editingHand.id, { ...hand, scores: hand.scores })
             setEditingHand(null)
@@ -545,11 +441,35 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           isManualAdd={true}
           allSessionPlayers={sessionPlayers}
           existingHandCount={hands.length}
+          sessionTotals={totals}
+          sessionPlayerIds={sessionPlayers}
+          currentDealer={currentDealer}
           onSubmit={({ insertAfterHandNumber, dealerPid: manualDealer, ...handCore }) => {
             insertHandAt(session.id, { ...handCore, dealerPid: manualDealer }, insertAfterHandNumber)
             setShowManualAdd(false)
           }}
           onClose={() => setShowManualAdd(false)}
+        />
+      )}
+
+      {/* F-Up modal */}
+      {(showFup || editingFupHand) && (
+        <FupModal
+          players={activePlayers}
+          getPlayer={getPlayer}
+          getDisplayName={getDisplayName}
+          lastRoundActive={lastRoundActive}
+          initialValues={editingFupHand ?? undefined}
+          onSubmit={(data) => {
+            if (editingFupHand) {
+              updateHand(session.id, editingFupHand.id, data)
+            } else {
+              addHand(session.id, data)
+            }
+            setShowFup(false)
+            setEditingFupHand(null)
+          }}
+          onClose={() => { setShowFup(false); setEditingFupHand(null) }}
         />
       )}
 
@@ -565,6 +485,29 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           onReorder={(newOrder) => reorderSessionPlayers(session.id, newOrder)}
           onClose={() => setShowManage(false)}
         />
+      )}
+
+      {/* Finalize Night confirmation */}
+      {showFinalizeConfirm && (
+        <div className="modal-overlay" onClick={() => setShowFinalizeConfirm(false)}>
+          <div className="modal animate-slide-up" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 style={{ fontSize: 16, fontWeight: 700 }}>Finalize Night?</h2>
+              <button className="btn btn-ghost btn-icon" onClick={() => setShowFinalizeConfirm(false)} style={{ fontSize: 18, lineHeight: 1 }}>✕</button>
+            </div>
+            <div className="modal-body" style={{ padding: '14px 20px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.65, margin: 0 }}>
+                Lock and save this session — {hands.length} hand{hands.length !== 1 ? 's' : ''} played. You can reopen it later if needed.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setShowFinalizeConfirm(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => { endSession(session.id); setShowFinalizeConfirm(false) }}>
+                Finalize
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* German toast notification */}
@@ -608,8 +551,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
 }
 
 // ── Past Session Card ─────────────────────────────────────────────────────────
-function PastSessionCard({ session, getPlayer, getDisplayName, getSessionTotals, onDelete }) {
-  const [expanded, setExpanded] = useState(false)
+function PastSessionCard({ session, getPlayer, getDisplayName, getSessionTotals, onDelete, reopenSession }) {
+  const [expanded,      setExpanded]      = useState(false)
+  const [reopenConfirm, setReopenConfirm] = useState(false)
   const totals = getSessionTotals(session.id)
   const sorted = [...session.players].sort((a, b) => (totals[b] ?? 0) - (totals[a] ?? 0))
   const dateStr = new Date(session.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
@@ -628,8 +572,19 @@ function PastSessionCard({ session, getPlayer, getDisplayName, getSessionTotals,
       {expanded && (
         <div style={{ borderTop: '1px solid var(--border)', padding: 14, background: 'var(--bg-elevated)' }}>
           <Settlement players={sorted} totals={totals} getPlayer={getPlayer} getDisplayName={getDisplayName} />
-          <div style={{ marginTop: 12 }}>
-            <button className="btn btn-danger btn-sm" onClick={() => onDelete(session.id)}>Delete Session</button>
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {reopenConfirm ? (
+              <>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Reopen this session?</span>
+                <button className="btn btn-primary btn-sm" onClick={() => { reopenSession(session.id); setExpanded(false); setReopenConfirm(false) }}>Confirm Reopen</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setReopenConfirm(false)}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <button className="btn btn-ghost btn-sm" onClick={() => setReopenConfirm(true)}>Reopen Night</button>
+                <button className="btn btn-danger btn-sm" onClick={() => onDelete(session.id)}>Delete Session</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -645,7 +600,7 @@ export default function GameNightPage({
   activateLastRound, addSessionPlayer,
   insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,
   getPlayer, getDisplayName, getActiveSession, getSessionTotals,
-  onShowDisplay,
+  reopenSession,
 }) {
   const [backupSession, setBackupSession] = useState(null)
   const activeSession = getActiveSession()
@@ -673,7 +628,6 @@ export default function GameNightPage({
         insertSessionPlayer={insertSessionPlayer}
         markPlayerLeft={markPlayerLeft}
         reorderSessionPlayers={reorderSessionPlayers}
-        onShowDisplay={onShowDisplay}
       />
     )
   }
@@ -719,7 +673,7 @@ export default function GameNightPage({
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Past Sessions</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {pastSessions.map(s => (
-              <PastSessionCard key={s.id} session={s} getPlayer={getPlayer} getDisplayName={getDisplayName} getSessionTotals={getSessionTotals} onDelete={deleteSession} />
+              <PastSessionCard key={s.id} session={s} getPlayer={getPlayer} getDisplayName={getDisplayName} getSessionTotals={getSessionTotals} onDelete={deleteSession} reopenSession={reopenSession} />
             ))}
           </div>
         </div>

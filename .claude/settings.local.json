@@ -9,7 +9,12 @@
       "Bash(npm run *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "mcp__claude_ai_Gmail__create_draft"
+      "mcp__claude_ai_Gmail__create_draft",
+      "Bash(git push *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jalec\\\\Documents\\\\sheepshead-app\" -Recurse -File)",
+      "Bash(Select-Object FullName)",
+      "Bash(Sort-Object FullName)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }

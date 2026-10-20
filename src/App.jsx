@@ -3,7 +3,6 @@ import { useStore } from './store/useStore'
 import RosterPage    from './pages/RosterPage'
 import GameNightPage from './pages/GameNightPage'
 import AnalyticsPage from './pages/AnalyticsPage'
-import DisplayMode   from './components/DisplayMode'
 import { exportData, readBackupFile, applyBackup } from './utils/backup'
 
 const TABS = [
@@ -14,9 +13,6 @@ const TABS = [
 
 export default function App() {
   const [tab, setTab] = useState('game')
-
-  // TV Display mode
-  const [showDisplay, setShowDisplay] = useState(false)
 
   // Settings dropdown
   const [showSettings,  setShowSettings]  = useState(false)
@@ -122,17 +118,6 @@ export default function App() {
             </span>
           )}
 
-          {/* TV Display */}
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setShowDisplay(true)}
-            title="Open TV display mode"
-            style={{ gap: 5, fontSize: 12, opacity: 0.75 }}
-          >
-            <span style={{ fontSize: 14 }}>📺</span>
-            <span>TV</span>
-          </button>
-
           {/* Settings */}
           <div ref={settingsRef} style={{ position: 'relative' }}>
             <button
@@ -207,7 +192,7 @@ export default function App() {
           getDisplayName={store.getDisplayName}
           getActiveSession={store.getActiveSession}
           getSessionTotals={store.getSessionTotals}
-          onShowDisplay={() => setShowDisplay(true)}
+          reopenSession={store.reopenSession}
         />}
         {tab === 'roster'    && <RosterPage
           players={store.players}
@@ -309,16 +294,6 @@ export default function App() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* TV Display Mode overlay */}
-      {showDisplay && (
-        <DisplayMode
-          session={activeSession}
-          getPlayer={store.getPlayer}
-          getDisplayName={store.getDisplayName}
-          onExit={() => setShowDisplay(false)}
-        />
       )}
 
       {/* App-level toast */}

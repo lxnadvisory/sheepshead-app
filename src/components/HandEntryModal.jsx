@@ -32,6 +32,9 @@ export default function HandEntryModal({
   isManualAdd,
   allSessionPlayers,
   existingHandCount,
+  sessionTotals,      // {pid: number} — running totals for the strip
+  sessionPlayerIds,   // string[] — all session players (including dealer)
+  currentDealer,      // pid of current dealer
 }) {
   const iv        = initialValues ?? {}
   const isEditing = !!initialValues
@@ -309,12 +312,41 @@ export default function HandEntryModal({
               {isManualAdd ? 'Add Past Hand'
                 : isEditing ? `Editing Hand #${handNumber}`
                 : handNumber
-                  ? `Log Hand · Hand #${handNumber}${effectiveDealerPid ? ` · Dealer: ${getDisplayName(effectiveDealerPid)}` : ''}`
+                  ? `Log Hand · Hand #${handNumber}${effectiveDealerPid ? ` · 🍆 ${getDisplayName(effectiveDealerPid)}` : ''}`
                   : 'Log Hand'}
             </h2>
           </div>
           <button className="btn btn-ghost btn-icon" onClick={onClose} style={{ fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
+
+        {/* ── Sticky totals strip ── */}
+        {sessionTotals && sessionPlayerIds && sessionPlayerIds.length > 0 && (
+          <div style={{
+            padding: '5px 16px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-base)',
+            display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
+            opacity: 0.8,
+          }}>
+            {sessionPlayerIds.map(pid => {
+              const p     = getPlayer(pid)
+              const total = sessionTotals[pid] ?? 0
+              const isDlr = pid === currentDealer
+              return (
+                <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                  {isDlr && <span style={{ fontSize: 11, lineHeight: 1 }}>🍆</span>}
+                  <Avatar player={p} size={16} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    {getDisplayName(pid)}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: total > 0 ? 'var(--success)' : total < 0 ? 'var(--danger)' : 'var(--text-muted)', marginLeft: 1 }}>
+                    {total > 0 ? `+${total}` : total}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {/* ── Body ── */}
         <div

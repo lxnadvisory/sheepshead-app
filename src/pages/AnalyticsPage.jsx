@@ -348,6 +348,13 @@ function PlayerCard({ id, rank, p, s, maxAbs, isNew, expanded, onToggle, allHand
                     color="var(--danger)"
                     dim={!s.longestLossStreak}
                   />
+                  {(s.fupCount ?? 0) > 0 && (
+                    <DStat
+                      label="F-Ups 💩"
+                      value={s.fupCount}
+                      color="var(--danger)"
+                    />
+                  )}
                 </DGroup>
               </>
             )}

@@ -357,6 +357,16 @@ export function useStore() {
     if (hasSupabase) db.deleteSession(sessionId).catch(console.error)
   }, [update])
 
+  const reopenSession = useCallback((sessionId) => {
+    update(s => ({
+      ...s,
+      sessions: s.sessions.map(sess =>
+        sess.id === sessionId ? { ...sess, active: true } : sess
+      ),
+    }))
+    if (hasSupabase) db.updateSession(sessionId, { active: true }).catch(console.error)
+  }, [update])
+
   /**
    * Add a hand. Automatically:
    *  - bakes in lastRound flag from session state
@@ -378,11 +388,16 @@ export function useStore() {
     const rawDealerPid = sess.players[sess.dealerIndex] ?? null
     const dealerPid   = is6Player ? rawDealerPid : null
     const lastRound   = (sess.lastRoundRemaining ?? 0) > 0
-    const nextDealer  = nextActiveDealerIndex(sess.players, leftPlayers, sess.dealerIndex)
+    const skipAdvance = hand.skipDealerAdvance === true
+    const nextDealer  = skipAdvance
+      ? sess.dealerIndex
+      : nextActiveDealerIndex(sess.players, leftPlayers, sess.dealerIndex)
     const nextLR      = lastRound ? Math.max(0, (sess.lastRoundRemaining ?? 0) - 1) : 0
 
+    // Strip the control flag before storing
+    const { skipDealerAdvance: _skip, ...handCore } = hand
     const fullHand = {
-      ...hand,
+      ...handCore,
       id:        crypto.randomUUID(),
       handNumber,
       lastRound,
@@ -623,6 +638,7 @@ export function useStore() {
         longestWinStreak: 0, longestLossStreak: 0,
         currentStreak: 0, biggestHandWin: 0,
         sessionsPlayed: 0,
+        fupCount: 0,
       }
     }
 
@@ -631,10 +647,18 @@ export function useStore() {
     })
 
     allHands.forEach(h => {
+      const isFup = h.handType === 'fup'
       Object.entries(h.scores ?? {}).forEach(([pid, delta]) => {
         ensure(pid)
         const s = stats[pid]
-        s.totalPts    += delta
+        s.totalPts += delta    // F-Ups affect real score
+
+        if (isFup) {
+          // F-Ups only increment the fupCount for the offender; others just see the score change
+          if (pid === h.offenderId) s.fupCount++
+          return
+        }
+
         s.handsPlayed++
         if (delta > 0) s.wins++
         if (delta < 0) s.losses++
@@ -662,16 +686,16 @@ export function useStore() {
       const s = stats[pid]
       let curW = 0, curL = 0, maxW = 0, maxL = 0, cur = 0
       allHands.forEach(h => {
+        if (h.handType === 'fup') return          // F-Ups don't affect streaks
         const delta = h.scores?.[pid]
         if (delta === undefined) return
-        if (pid === h.dealerPid) return   // sit-out hands don't break streaks
+        if (pid === h.dealerPid) return           // sit-out doesn't affect streak
         if (delta > 0) {
           curW++; curL = 0; if (curW > maxW) maxW = curW; cur = curW
         } else if (delta < 0) {
           curL++; curW = 0; if (curL > maxL) maxL = curL; cur = -curL
-        } else {
-          curW = 0; curL = 0; cur = 0
         }
+        // delta === 0: no change — neither breaks nor extends the streak
       })
       s.longestWinStreak  = maxW
       s.longestLossStreak = maxL
@@ -687,7 +711,7 @@ export function useStore() {
     isLoading,
     syncError,
     addPlayer, updatePlayer, removePlayer,
-    startSession, endSession, deleteSession,
+    startSession, endSession, deleteSession, reopenSession,
     addHand, updateHand, deleteHand, insertHandAt,
     activateLastRound, addSessionPlayer,
     insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,

@@ -4,6 +4,7 @@ import HandEntryModal     from '../components/HandEntryModal'
 import FupModal           from '../components/FupModal'
 import ManagePlayersModal from '../components/ManagePlayersModal'
 import Settlement         from '../components/Settlement'
+import CombinedNight      from '../components/CombinedNight'
 import InGameStats, { computeStreaks, streakStyle } from '../components/InGameStats'
 import Avatar from '../components/Avatar'
 import { exportData } from '../utils/backup'
@@ -132,7 +133,7 @@ function pickToast(hand) {
   return null
 }
 
-function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers }) {
+function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, onShowTables, onOpenCombined }) {
   const [showModal,          setShowModal]          = useState(false)
   const [showFup,            setShowFup]            = useState(false)
   const [showSettle,         setShowSettle]         = useState(false)
@@ -179,8 +180,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
 
   const dateStr = new Date(session.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
-  // Roster players not yet in session (quick-add strip; full seat-position picker is in ManagePlayersModal)
-  const addablePlayers = allRosterPlayers.filter(p => !sessionPlayers.includes(p.id) && sessionPlayers.length < 6)
+  // Roster players not playing right now — new to this table, or back after leaving it
+  // (quick-add strip; full seat-position picker is in ManagePlayersModal)
+  const addablePlayers = allRosterPlayers.filter(p => !activeSeatOrder.includes(p.id) && activeCount < 6)
 
   // ── Session header ──────────────────────────────────────────────────────────
   const SessionHeader = (
@@ -216,6 +218,12 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           <button className="btn btn-ghost btn-sm" onClick={() => setShowSettle(true)}>
             Settle Up
           </button>
+          <button className="btn btn-ghost btn-sm" onClick={onOpenCombined} title="Totals across every table started today">
+            ⧉ Combined
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={onShowTables} title="Switch to another live table or start a new one">
+            ⇄ Tables
+          </button>
         </div>
       </div>
 
@@ -230,6 +238,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
                 style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Avatar player={p} size={18} />
                 {getDisplayName(p.id)}
+                {leftPlayers.includes(p.id) && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>(rejoin)</span>}
               </button>
             ))}
           </div>
@@ -611,10 +620,23 @@ export default function GameNightPage({
   activateLastRound, addSessionPlayer,
   insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,
   getPlayer, getDisplayName, getActiveSession, getSessionTotals,
-  reopenSession,
+  reopenSession, getLiveSessions, openTable, showTableList,
 }) {
   const [backupSession, setBackupSession] = useState(null)
+  const [showCombined,  setShowCombined]  = useState(false)
   const activeSession = getActiveSession()
+  const liveSessions  = getLiveSessions()
+
+  if (showCombined) {
+    return (
+      <CombinedNight
+        getPlayer={getPlayer}
+        getDisplayName={getDisplayName}
+        endSession={endSession}
+        onClose={() => setShowCombined(false)}
+      />
+    )
+  }
 
   const handleEndSession = async (sessionId) => {
     const sess = sessions.find(s => s.id === sessionId)
@@ -639,6 +661,8 @@ export default function GameNightPage({
         insertSessionPlayer={insertSessionPlayer}
         markPlayerLeft={markPlayerLeft}
         reorderSessionPlayers={reorderSessionPlayers}
+        onShowTables={showTableList}
+        onOpenCombined={() => setShowCombined(true)}
       />
     )
   }
@@ -677,6 +701,34 @@ export default function GameNightPage({
           </button>
         </div>
       )}
+
+      {/* Live tables — with two tables going, each computer opens its own */}
+      {liveSessions.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+            Live tables
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {liveSessions.map(s => (
+              <div key={s.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>
+                    Started {new Date(s.date).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · {s.hands.length} hands
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.players.map(pid => getDisplayName(pid)).join(', ')}
+                  </div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => openTable(s.id)}>Open this table</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button className="btn btn-ghost" style={{ width: '100%', marginBottom: 24 }} onClick={() => setShowCombined(true)}>
+        ⧉ Combined Night — totals across today's tables
+      </button>
 
       <SetupView players={players} getDisplayName={getDisplayName} startSession={startSession} />
       {pastSessions.length > 0 && (

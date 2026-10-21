@@ -31,14 +31,16 @@ function AddTab({ session, allRosterPlayers, getDisplayName, onInsert, onClose }
 
   const leftPlayers   = session.leftPlayers ?? []
   const activeCount   = session.players.filter(p => !leftPlayers.includes(p)).length
-  const isFull        = session.players.length >= 6
-  const available     = allRosterPlayers.filter(p => !session.players.includes(p.id))
+  const isFull        = activeCount >= 6
+  // Not playing right now: new to this table, or left earlier and coming back
+  const available     = allRosterPlayers.filter(p => !session.players.includes(p.id) || leftPlayers.includes(p.id))
+  const isRejoin      = selectedPid && leftPlayers.includes(selectedPid)
   const going6Player  = activeCount === 5
 
   if (isFull) {
     return (
       <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>
-        All 6 seats are occupied. Remove a player first to make room.
+        6 players are already playing. Remove a player first to make room.
       </p>
     )
   }
@@ -46,7 +48,7 @@ function AddTab({ session, allRosterPlayers, getDisplayName, onInsert, onClose }
   if (available.length === 0) {
     return (
       <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>
-        Everyone on the roster is already in this session.
+        Everyone on the roster is already playing at this table.
       </p>
     )
   }
@@ -67,13 +69,20 @@ function AddTab({ session, allRosterPlayers, getDisplayName, onInsert, onClose }
             >
               <Avatar player={p} size={18} />
               {getDisplayName(p.id)}
+              {leftPlayers.includes(p.id) && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>(rejoin)</span>}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Seat position picker — only shown once a player is selected */}
-      {selectedPid && (
+      {isRejoin && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          {getDisplayName(selectedPid)} rejoins in their old seat. Their earlier hands at this table are kept as they were.
+        </div>
+      )}
+
+      {/* Seat position picker — only shown once a new player is selected */}
+      {selectedPid && !isRejoin && (
         <div>
           <div style={sectionLabel}>Seat Position</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

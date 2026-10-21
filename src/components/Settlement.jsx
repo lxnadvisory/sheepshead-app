@@ -242,7 +242,12 @@ function EmailConfirmModal({ allRecipients, emailTargets, onSend, onClose, sendi
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function Settlement({ players, totals, getPlayer, getDisplayName, session, autoOpen, onAutoOpenHandled }) {
+/**
+ * buildEmail (optional): (transfers) => ({ subject, html, text }) replaces the
+ * single-session email — used by Combined Night. The email button shows when
+ * either `session` or `buildEmail` is given.
+ */
+export default function Settlement({ players, totals, getPlayer, getDisplayName, session, buildEmail, autoOpen, onAutoOpenHandled }) {
   const [showModal, setShowModal] = useState(() => !!autoOpen)
   const [sending,   setSending]   = useState(false)
   const [sent,      setSent]      = useState(false)
@@ -251,7 +256,8 @@ export default function Settlement({ players, totals, getPlayer, getDisplayName,
   const dn        = getDisplayName ?? ((pid) => getPlayer(pid)?.firstName ?? pid)
   const transfers = settleDebts({ ...totals })
 
-  const allRecipients = session
+  const canEmail      = Boolean(session || buildEmail)
+  const allRecipients = canEmail
     ? players.map(pid => ({ pid, player: getPlayer(pid), email: getPlayer(pid)?.email ?? null }))
     : []
   const emailTargets = allRecipients.filter(r => r.email)
@@ -271,7 +277,8 @@ export default function Settlement({ players, totals, getPlayer, getDisplayName,
     setSending(true)
     setSendError(null)
 
-    const { subject, html } = buildHtmlEmail(session, players, totals, getPlayer, dn, transfers)
+    const custom = buildEmail?.(transfers)
+    const { subject, html } = custom ?? buildHtmlEmail(session, players, totals, getPlayer, dn, transfers)
     const toList = emailTargets.map(r => r.email)
 
     let fetchRes = null
@@ -301,7 +308,7 @@ export default function Settlement({ players, totals, getPlayer, getDisplayName,
 
       if (noResponse || is404) {
         console.log('[send-summary] falling back to mailto')
-        const body = buildMailtoBody(session, players, totals, getPlayer, dn, transfers)
+        const body = custom ? custom.text : buildMailtoBody(session, players, totals, getPlayer, dn, transfers)
         const bccList = toList.join(',')
         const a = document.createElement('a')
         a.href = `mailto:jaleckson@gmail.com?bcc=${encodeURIComponent(bccList)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
@@ -395,7 +402,7 @@ export default function Settlement({ players, totals, getPlayer, getDisplayName,
       </div>
 
       {/* ── Email summary button (only when session data is present) ── */}
-      {session && (
+      {canEmail && (
         <div style={{ marginTop: 6, paddingTop: 14, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {sent ? (
             <div style={{

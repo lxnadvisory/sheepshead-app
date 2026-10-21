@@ -240,6 +240,9 @@ export default function App() {
           getActiveSession={store.getActiveSession}
           getSessionTotals={store.getSessionTotals}
           reopenSession={store.reopenSession}
+          getLiveSessions={store.getLiveSessions}
+          openTable={store.openTable}
+          showTableList={store.showTableList}
         />}
         {tab === 'roster'    && <RosterPage
           players={store.players}

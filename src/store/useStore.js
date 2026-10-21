@@ -52,6 +52,41 @@ function nextActiveDealerIndex(players, leftPlayers, fromIdx) {
   return (fromIdx + 1) % n
 }
 
+const activeCount = sess => sess.players.filter(p => !(sess.leftPlayers ?? []).includes(p)).length
+
+/**
+ * Save a new seat order and rewrite the stored hands to match (seat_deltas is
+ * positional). Checked up front so nothing is written if the hands can't be
+ * reseated; if rewriting fails partway, hands and seat order are put back.
+ */
+async function writeSeatOrder(sessionId, hands, oldOrder, newOrder) {
+  const stuck = hands.filter(h => h.unseatedDeltas?.length)
+  if (stuck.length) {
+    throw new Error(
+      `Hands ${stuck.map(h => '#' + h.handNumber).join(', ')} have scores for a seat this night doesn't list. ` +
+      "Fix the night's seat order in the database before moving players.")
+  }
+  await db.updateSession(sessionId, { players: newOrder })
+  if (!hands.length) return
+  try {
+    await db.reseatHands(hands, newOrder)
+  } catch (err) {
+    await db.reseatHands(hands, oldOrder).catch(e => console.error('[Supabase] Reseat rollback failed:', e))
+    await db.updateSession(sessionId, { players: oldOrder }).catch(e => console.error('[Supabase] Seat order rollback failed:', e))
+    throw err
+  }
+}
+
+const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
+
+// ── Which table this device is running ───────────────────────────────────────
+// With two tables live on two computers, each computer must stay on its own
+// session. null = no choice yet, 'setup' = this device asked for the table list.
+const DEVICE_SESSION_KEY = 'shed:deviceSession'
+function loadDeviceSession() {
+  try { return localStorage.getItem(DEVICE_SESSION_KEY) } catch { return null }
+}
+
 // ── UUID migration ────────────────────────────────────────────────────────────
 // Supabase UUID columns require proper UUID format. On first Supabase connect,
 // migrate all local IDs (e.g. 'jake', 'p_xxx', 'h_xxx') to crypto.randomUUID().
@@ -120,6 +155,15 @@ export function useStore() {
   const [syncError, setSyncError] = useState(null)
   const [writeError, setWriteError] = useState(null)
   const [loadWarnings, setLoadWarnings] = useState([])
+  const [deviceSession, setDeviceSessionState] = useState(loadDeviceSession)
+
+  const setDeviceSession = useCallback((value) => {
+    try {
+      if (value) localStorage.setItem(DEVICE_SESSION_KEY, value)
+      else localStorage.removeItem(DEVICE_SESSION_KEY)
+    } catch {}
+    setDeviceSessionState(value)
+  }, [])
 
   // Mirror of latest state for reading inside async callbacks
   // (React batches setState, so we can't rely on closure-captured `state`).
@@ -224,12 +268,14 @@ export function useStore() {
           })
         )
 
-        const activeSessions = sessionsWithHands.filter(s => s.active)
-        if (activeSessions.length > 1) {
+        // Several live tables on the same night is normal; live nights from
+        // earlier days are the ones that were never finalized.
+        const activeSessions = sessionsWithHands.filter(s => s.active && new Date(s.date) < startOfToday())
+        if (activeSessions.length > 0) {
           warnings.push({ sessionId: null, text:
-            `${activeSessions.length} game nights are still marked live in the database (` +
+            `${activeSessions.length} game night${activeSessions.length > 1 ? 's' : ''} from an earlier day ${activeSessions.length > 1 ? 'are' : 'is'} still marked live (` +
             activeSessions.map(s => `${new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${s.hands.length} hands`).join('; ') +
-            `). Showing the most recent one; once it's finalized the next one opens so you can finalize or delete it.`
+            `). Open it from ⇄ Tables to finalize or delete it.`
           })
         }
 
@@ -365,6 +411,26 @@ export function useStore() {
           })
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'sessions' },
+        payload => {
+          // Only the live/ended flag is mirrored — e.g. a combined finalize run on
+          // the other table's computer closes this table here too. Seat order is
+          // left alone so an in-progress local change can't be clobbered.
+          const row = payload.new
+          if (!row?.id || !row.status) return
+          setState(prev => {
+            const sess = prev.sessions.find(s => s.id === row.id)
+            const active = row.status === 'active'
+            if (!sess || sess.active === active) return prev
+            const next = { ...prev, sessions: prev.sessions.map(s => s.id === row.id ? { ...s, active } : s) }
+            stateRef.current = next
+            save('shed:sessions', next.sessions)
+            return next
+          })
+        }
+      )
       .subscribe((status) => {
         console.log('[Supabase] Real-time subscription status:', status)
       })
@@ -414,18 +480,20 @@ export function useStore() {
     }
     await persist('Start game night', () => db.createSession(session))
     update(s => ({ ...s, sessions: [...s.sessions, session] }))
+    setDeviceSession(session.id)
     return session.id
-  }, [update, persist])
+  }, [update, persist, setDeviceSession])
 
   const endSession = useCallback(async (sessionId) => {
     await persist('Finalize night', () => db.updateSession(sessionId, { active: false }))
+    if (loadDeviceSession() === sessionId) setDeviceSession(null)
     update(s => ({
       ...s,
       sessions: s.sessions.map(sess =>
         sess.id === sessionId ? { ...sess, active: false } : sess
       ),
     }))
-  }, [update, persist])
+  }, [update, persist, setDeviceSession])
 
   const deleteSession = useCallback(async (sessionId) => {
     await persist('Delete session', () => db.deleteSession(sessionId))
@@ -434,13 +502,14 @@ export function useStore() {
 
   const reopenSession = useCallback(async (sessionId) => {
     await persist('Reopen night', () => db.updateSession(sessionId, { active: true }))
+    setDeviceSession(sessionId)
     update(s => ({
       ...s,
       sessions: s.sessions.map(sess =>
         sess.id === sessionId ? { ...sess, active: true } : sess
       ),
     }))
-  }, [update, persist])
+  }, [update, persist, setDeviceSession])
 
   /**
    * Add a hand. Automatically:
@@ -560,10 +629,30 @@ export function useStore() {
     }))
   }, [update])
 
-  /** Append a player from the roster to an active session (up to 6 total). */
+  /**
+   * A player who left this table and came back: they keep their seat and every
+   * hand they already played; they just rejoin hand entry. Nothing in the DB changes
+   * (leftPlayers is device-local). Returns true if handled.
+   */
+  const rejoinIfLeft = useCallback((sess, playerId) => {
+    if (!(sess.leftPlayers ?? []).includes(playerId)) return false
+    if (activeCount(sess) >= 6) return true
+    update(s => ({
+      ...s,
+      sessions: s.sessions.map(session => session.id !== sess.id ? session : {
+        ...session, leftPlayers: (session.leftPlayers ?? []).filter(p => p !== playerId),
+      }),
+    }))
+    return true
+  }, [update])
+
+  /** Append a player from the roster to an active session (up to 6 active). */
   const addSessionPlayer = useCallback(async (sessionId, playerId) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
-    if (!sess || sess.players.includes(playerId) || sess.players.length >= 6) return
+    if (!sess || rejoinIfLeft(sess, playerId)) return
+    if (sess.players.includes(playerId) || activeCount(sess) >= 6) return
+    // Appending never touches stored hands: earlier hands have fewer scores than
+    // seats, which loads as 0 for the new player.
     const newPlayers = [...sess.players, playerId]
     await persist('Add player', () => db.updateSession(sessionId, { players: newPlayers }))
     update(s => ({
@@ -572,12 +661,14 @@ export function useStore() {
         session.id === sessionId ? { ...session, players: newPlayers } : session
       ),
     }))
-  }, [update, persist])
+  }, [update, persist, rejoinIfLeft])
 
-  /** Insert a roster player at a specific seat position (up to 6 total). */
+  /** Insert a roster player at a specific seat position (up to 6 active). */
   const insertSessionPlayer = useCallback(async (sessionId, playerId, seatIndex) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
-    if (!sess || sess.players.includes(playerId) || sess.players.length >= 6) return
+    if (!sess || rejoinIfLeft(sess, playerId)) return
+    if (sess.players.includes(playerId) || activeCount(sess) >= 6) return
+    if (seatIndex >= sess.players.length) return addSessionPlayer(sessionId, playerId)
 
     const newPlayers = [
       ...sess.players.slice(0, seatIndex),
@@ -589,10 +680,7 @@ export function useStore() {
       ? sess.dealerIndex + 1
       : sess.dealerIndex
 
-    await persist('Add player', async () => {
-      await db.updateSession(sessionId, { players: newPlayers })
-      if (sess.hands.length) await db.reseatHands(sess.hands, newPlayers)
-    })
+    await persist('Add player', () => writeSeatOrder(sessionId, sess.hands, sess.players, newPlayers))
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
@@ -600,7 +688,7 @@ export function useStore() {
         return { ...session, players: newPlayers, dealerIndex: newDealerIndex }
       }),
     }))
-  }, [update, persist])
+  }, [update, persist, rejoinIfLeft, addSessionPlayer])
 
   /** Mark a player as having left the session. Their column/history is preserved. */
   const markPlayerLeft = useCallback((sessionId, playerId) => {
@@ -662,10 +750,7 @@ export function useStore() {
     const currentDealerPid = sess.players[sess.dealerIndex]
     const newDealerIndex   = newOrder.indexOf(currentDealerPid)
 
-    await persist('Reorder players', async () => {
-      await db.updateSession(sessionId, { players: newOrder })
-      if (sess.hands.length) await db.reseatHands(sess.hands, newOrder)
-    })
+    await persist('Reorder players', () => writeSeatOrder(sessionId, sess.hands, sess.players, newOrder))
     update(s => ({
       ...s,
       sessions: s.sessions.map(session => {
@@ -688,10 +773,22 @@ export function useStore() {
   [state.players])
 
   const getSession       = useCallback((id) => state.sessions.find(s => s.id === id),   [state.sessions])
-  // Most recent live night wins if more than one is somehow still active
-  const getActiveSession = useCallback(() =>
-    state.sessions.filter(s => s.active).sort((a, b) => new Date(b.date) - new Date(a.date))[0],
+  /** Live sessions, newest first. Several can be live when two tables play the same night. */
+  const getLiveSessions = useCallback(() =>
+    state.sessions.filter(s => s.active).sort((a, b) => new Date(b.date) - new Date(a.date)),
   [state.sessions])
+
+  // The table this device is running: the one it started or opened; otherwise
+  // the only live one. With several live and no choice made, none — the game
+  // screen then lists the live tables to pick from.
+  const getActiveSession = useCallback(() => {
+    if (deviceSession === 'setup') return undefined
+    const live = getLiveSessions()
+    return live.find(s => s.id === deviceSession) ?? (live.length === 1 ? live[0] : undefined)
+  }, [getLiveSessions, deviceSession])
+
+  const openTable      = useCallback((sessionId) => setDeviceSession(sessionId), [setDeviceSession])
+  const showTableList  = useCallback(() => setDeviceSession('setup'), [setDeviceSession])
 
   const getSessionTotals = useCallback((sessionId) => {
     const sess = state.sessions.find(s => s.id === sessionId)
@@ -794,6 +891,7 @@ export function useStore() {
     syncError,
     writeError, clearWriteError,
     loadWarnings,
+    getLiveSessions, openTable, showTableList,
     addPlayer, updatePlayer, removePlayer,
     startSession, endSession, deleteSession, reopenSession,
     addHand, updateHand, deleteHand, insertHandAt,

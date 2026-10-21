@@ -143,6 +143,18 @@ export async function getSessions() {
   return (data || []).map(row => dbToSession(row))
 }
 
+/** Sessions started in [from, to) — ISO timestamps. Oldest first. */
+export async function getSessionsStartedBetween(from, to) {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('*')
+    .gte('date', from)
+    .lt('date', to)
+    .order('date', { ascending: true })
+  if (error) throw error
+  return (data || []).map(row => dbToSession(row))
+}
+
 export async function deleteSession(id) {
   // Remove hands first (handles DBs without CASCADE)
   const { error: handsError } = await supabase.from('hands').delete().eq('session_id', id)

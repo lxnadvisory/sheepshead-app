@@ -167,6 +167,16 @@ export function dbRowToHand(row, seatOrder) {
       scores[pid] = row.seat_deltas[i] ?? 0
     })
   }
+  // Scores stored past the end of seat_order (a seat the session row doesn't
+  // list). They can't be credited to anyone, but they're kept and written back
+  // unchanged so the stored row is never truncated.
+  const extra = Array.isArray(row.seat_deltas) && Array.isArray(seatOrder) &&
+    row.seat_deltas.length > seatOrder.length
+    ? {
+        unseatedDeltas: row.seat_deltas.slice(seatOrder.length),
+        unseatedRoles:  Array.isArray(row.seat_roles) ? row.seat_roles.slice(seatOrder.length) : [],
+      }
+    : {}
   const isFup = String(row.hand_type || '').toLowerCase() === 'fup'
   if (isFup) {
     return {
@@ -189,6 +199,7 @@ export function dbRowToHand(row, seatOrder) {
       blitzes:      {},
       doublerCount: 0,
       lastRound:    false,
+      ...extra,
     }
   }
   return {
@@ -213,6 +224,17 @@ export function dbRowToHand(row, seatOrder) {
     // lastRound is cosmetic; doublerCount is not needed to display stored scores.
     doublerCount: 0,
     lastRound:    false,
+    ...extra,
+  }
+}
+
+/** Append unseated scores back on so a rewrite never shortens the stored arrays. */
+function withUnseated(hand, seatDeltas, seatRoles) {
+  const extraDeltas = hand.unseatedDeltas ?? []
+  const extraRoles  = hand.unseatedRoles  ?? []
+  return {
+    seat_deltas: [...seatDeltas, ...extraDeltas],
+    seat_roles:  [...seatRoles, ...extraDeltas.map((_, i) => extraRoles[i] ?? 'opp')],
   }
 }
 
@@ -227,12 +249,13 @@ function fupToDb(hand, sessionId, seatOrder) {
     points:       0,
     tier:         'FUP',
     mult:         hand.multiplier ?? 1,
-    seat_deltas:  seatOrder.map(pid => hand.scores?.[pid] ?? 0),
-    seat_roles:   seatOrder.map(pid => {
-      if (pid === hand.offenderId) return 'picker'
-      if (pid === hand.dealerPid)  return 'out'
-      return 'opp'
-    }),
+    ...withUnseated(hand,
+      seatOrder.map(pid => hand.scores?.[pid] ?? 0),
+      seatOrder.map(pid => {
+        if (pid === hand.offenderId) return 'picker'
+        if (pid === hand.dealerPid)  return 'out'
+        return 'opp'
+      })),
     dealer_name:  hand.dealerPid || null,
     shed_clean:   false,
     no_tricks:    false,
@@ -267,8 +290,7 @@ function handToDb(hand, sessionId, seatOrder) {
     points:       hand.pickerPoints ?? null,
     tier:         getTierLabel(hand),
     mult:         getMultiplier(hand),
-    seat_deltas:  seatDeltas,
-    seat_roles:   seatRoles,
+    ...withUnseated(hand, seatDeltas, seatRoles),
     dealer_name:  hand.dealerPid || null,
     shed_clean:   hand.shedClean      || false,
     no_tricks:    hand.pickerNoTricks || false,
@@ -306,6 +328,14 @@ export async function deleteHand(id) {
  * Only those two columns are touched so stored tier/mult stay intact.
  */
 export async function reseatHands(hands, seatOrder) {
+  // Unseated scores belong to a seat we can't identify — moving seats around
+  // would pin them on whoever lands in that position. Refuse rather than guess.
+  const stuck = hands.filter(h => h.unseatedDeltas?.length)
+  if (stuck.length) {
+    throw new Error(
+      `Hands ${stuck.map(h => '#' + h.handNumber).join(', ')} have scores for a seat this night doesn't list. ` +
+      "Fix the night's seat order in the database before adding or moving players.")
+  }
   const results = await Promise.all(hands.map(h => {
     const { seat_deltas, seat_roles } = handToDb(h, null, seatOrder)
     return supabase.from('hands').update({ seat_deltas, seat_roles }).eq('id', h.id)
@@ -325,9 +355,12 @@ export function validateLoadedHand(row, hand, seatOrder) {
   if (!Array.isArray(row.seat_deltas)) {
     issues.push(`${label}: no score data (seat_deltas)`)
   } else if (row.seat_deltas.length > seatOrder.length) {
-    issues.push(`${label}: has ${row.seat_deltas.length} scores but the session has ${seatOrder.length} seats — extra scores dropped`)
+    const extra = row.seat_deltas.slice(seatOrder.length).map(d => (d > 0 ? '+' : '') + d).join(', ')
+    issues.push(`${label}: has ${row.seat_deltas.length} scores but the night lists ${seatOrder.length} players — ` +
+      `the extra score (${extra}) isn't credited to anyone yet. Stored data is untouched.`)
   }
-  const sum = Object.values(hand?.scores ?? {}).reduce((a, d) => a + d, 0)
+  // Conservation counts every stored score, credited or not
+  const sum = [...Object.values(hand?.scores ?? {}), ...(hand?.unseatedDeltas ?? [])].reduce((a, d) => a + d, 0)
   if (Math.abs(sum) > 0.001) issues.push(`${label}: scores don't balance (sum ${sum > 0 ? '+' : ''}${sum})`)
   if (hand?.handType === 'fup') {
     if (!hand.offenderId) issues.push(`${label}: no offender recorded`)

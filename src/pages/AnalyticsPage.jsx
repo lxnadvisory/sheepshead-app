@@ -366,7 +366,7 @@ function PlayerCard({ id, rank, p, s, maxAbs, isNew, expanded, onToggle, allHand
   )
 }
 
-export default function AnalyticsPage({ players, sessions, getPlayer, getDisplayName, getAnalytics }) {
+export default function AnalyticsPage({ players, sessions, getPlayer, getDisplayName, getAnalytics, dataWarnings = [] }) {
   const [sortBy,     setSortBy]     = useState('totalPts')
   const [expandedId, setExpandedId] = useState(null)
 
@@ -519,6 +519,21 @@ export default function AnalyticsPage({ players, sessions, getPlayer, getDisplay
             </div>
           )}
         </>
+      )}
+
+      {/* Data health — issues found in past nights' stored data. Read-only: nothing here changes scores. */}
+      {dataWarnings.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Data health</div>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: 13, lineHeight: 1.45 }}>
+            <div style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
+              Notes on past nights' stored data. Stored scores are never changed by the app.
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, wordBreak: 'break-word' }}>
+              {dataWarnings.map((w, i) => <li key={i}>{w.text}</li>)}
+            </ul>
+          </div>
+        </div>
       )}
     </div>
   )

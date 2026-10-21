@@ -25,6 +25,12 @@ export default function App() {
   const activeSession = store.getActiveSession()
   const { isLoading, syncError } = store
 
+  // Only problems with tonight (or the load as a whole) belong on game night.
+  // Old nights' data issues live in Stats → Data health.
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+  const tonightWarnings = store.loadWarnings.filter(w =>
+    w.sessionId === null || (activeSession && w.sessionId === activeSession.id))
+
   // Close settings on outside click
   useEffect(() => {
     if (!showSettings) return
@@ -189,8 +195,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Problems found while loading from Supabase — stays until dismissed */}
-      {store.loadWarnings.length > 0 && (
+      {/* Problems with tonight found while loading from Supabase — stays until dismissed */}
+      {tab === 'game' && !bannerDismissed && tonightWarnings.length > 0 && (
         <div role="alert" style={{
           margin: '12px 12px 0', maxWidth: 720, alignSelf: 'center', width: 'calc(100% - 24px)',
           display: 'flex', alignItems: 'flex-start', gap: 10,
@@ -201,13 +207,13 @@ export default function App() {
           <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
           <div style={{ flex: 1, wordBreak: 'break-word' }}>
             <div style={{ fontWeight: 800, color: 'var(--warning)', marginBottom: 4 }}>
-              Some data didn't load cleanly — totals may be off
+              Tonight's data didn't load cleanly — totals may be off
             </div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {store.loadWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              {tonightWarnings.map((w, i) => <li key={i}>{w.text}</li>)}
             </ul>
           </div>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={store.clearLoadWarnings}
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setBannerDismissed(true)}
             style={{ flexShrink: 0 }} title="Dismiss">✕</button>
         </div>
       )}
@@ -247,6 +253,7 @@ export default function App() {
           getPlayer={store.getPlayer}
           getDisplayName={store.getDisplayName}
           getAnalytics={store.getAnalytics}
+          dataWarnings={store.loadWarnings.filter(w => !tonightWarnings.includes(w))}
         />}
       </main>
 

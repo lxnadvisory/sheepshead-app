@@ -153,8 +153,7 @@ export function useStore() {
     }
   }, [])
 
-  const clearWriteError   = useCallback(() => setWriteError(null), [])
-  const clearLoadWarnings = useCallback(() => setLoadWarnings([]), [])
+  const clearWriteError = useCallback(() => setWriteError(null), [])
 
   // ── Initial Supabase load ────────────────────────────────────────────────
   useEffect(() => {
@@ -182,7 +181,7 @@ export function useStore() {
 
         // 3. Load hands for each session. One bad session must not take down the
         //    whole load — fall back to this device's copy and say so.
-        const warnings = []
+        const warnings = []  // { sessionId, text } — sessionId null = not tied to one night
         const sessionsWithHands = await Promise.all(
           dbSessions.map(async sess => {
             const localSess = local.sessions.find(s => s.id === sess.id)
@@ -191,10 +190,10 @@ export function useStore() {
             try {
               const res = await db.getHandsBySession(sess.id, sess.players)
               hands = res.hands
-              res.issues.forEach(msg => warnings.push(`${dateLabel}: ${msg}`))
+              res.issues.forEach(msg => warnings.push({ sessionId: sess.id, text: `${dateLabel}: ${msg}` }))
             } catch (err) {
               console.error(`[Supabase] Loading hands for session ${sess.id} failed:`, err)
-              warnings.push(`${dateLabel}: hands could not be loaded from the database (${err?.message || err}) — showing this device's saved copy instead.`)
+              warnings.push({ sessionId: sess.id, text: `${dateLabel}: hands could not be loaded from the database (${err?.message || err}) — showing this device's saved copy instead.` })
               return { ...sess, ...(localSess ?? {}), id: sess.id, players: sess.players, active: sess.active, hands: localSess?.hands ?? [] }
             }
 
@@ -204,10 +203,10 @@ export function useStore() {
             const dbIds   = new Set(hands.map(h => h.id))
             const missing = (localSess.hands ?? []).filter(h => !dbIds.has(h.id))
             if (missing.length > 0) {
-              warnings.push(
+              warnings.push({ sessionId: sess.id, text:
                 `${dateLabel}: ${missing.length} hand(s) on this device are not in the database and are not shown: ` +
                 missing.map(h => `#${h.handNumber}${h.handType === 'fup' ? ' (F-Up)' : ''}`).join(', ')
-              )
+              })
             }
 
             // dealerIndex / lastRoundRemaining / leftPlayers aren't stored in the DB.
@@ -227,11 +226,11 @@ export function useStore() {
 
         const activeSessions = sessionsWithHands.filter(s => s.active)
         if (activeSessions.length > 1) {
-          warnings.push(
+          warnings.push({ sessionId: null, text:
             `${activeSessions.length} game nights are still marked live in the database (` +
             activeSessions.map(s => `${new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${s.hands.length} hands`).join('; ') +
             `). Showing the most recent one; once it's finalized the next one opens so you can finalize or delete it.`
-          )
+          })
         }
 
         if (warnings.length > 0) console.warn('[Supabase] Load warnings:', warnings)
@@ -299,9 +298,10 @@ export function useStore() {
       } catch (err) {
         console.error('[Supabase] initial load failed:', err)
         setSyncError('Sync unavailable — using local data')
-        setLoadWarnings([
-          `Could not load from the database (${err?.message || err}). Showing this device's saved copy, which may be missing hands logged elsewhere.`,
-        ])
+        setLoadWarnings([{
+          sessionId: null,
+          text: `Could not load from the database (${err?.message || err}). Showing this device's saved copy, which may be missing hands logged elsewhere.`,
+        }])
       } finally {
         setIsLoading(false)
       }
@@ -501,12 +501,18 @@ export function useStore() {
     const existingHand = sess?.hands.find(h => h.id === handId)
     if (!sess || !existingHand) throw new Error('Hand not found — changes NOT saved.')
 
+    // Unseated scores (see dbRowToHand) aren't part of the edit form; carry them
+    // through so editing an old hand never truncates its stored seat_deltas.
+    const unseated = existingHand.unseatedDeltas
+      ? { unseatedDeltas: existingHand.unseatedDeltas, unseatedRoles: existingHand.unseatedRoles }
+      : {}
     const finalHand = {
       id:         handId,
       handNumber: existingHand.handNumber,
       lastRound:  existingHand.lastRound,
       dealerPid:  existingHand.dealerPid,
       ...handData,
+      ...unseated,
     }
     await persist(handData.handType === 'fup' ? 'Update F-Up' : 'Update hand',
       () => db.addHand(finalHand, sessionId, sess.players))
@@ -520,7 +526,7 @@ export function useStore() {
           hands: session.hands.map(h => {
             if (h.id !== handId) return h
             // Preserve auto-generated fields; overwrite everything else
-            return { id: h.id, handNumber: h.handNumber, lastRound: h.lastRound, dealerPid: h.dealerPid, ...handData }
+            return { id: h.id, handNumber: h.handNumber, lastRound: h.lastRound, dealerPid: h.dealerPid, ...handData, ...unseated }
           }),
         }
       }),
@@ -787,7 +793,7 @@ export function useStore() {
     isLoading,
     syncError,
     writeError, clearWriteError,
-    loadWarnings, clearLoadWarnings,
+    loadWarnings,
     addPlayer, updatePlayer, removePlayer,
     startSession, endSession, deleteSession, reopenSession,
     addHand, updateHand, deleteHand, insertHandAt,

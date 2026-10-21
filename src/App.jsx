@@ -12,7 +12,20 @@ const TABS = [
 ]
 
 export default function App() {
-  const [tab, setTab] = useState('game')
+  const [tab, setTab] = useState(() => window.location.hash.startsWith('#stats') ? 'analytics' : 'game')
+
+  // Stats lives at #stats (and #stats/p/<id> for a profile) so links and the
+  // back button work; leaving the tab drops the hash.
+  const switchTab = (id) => {
+    setTab(id)
+    if (id === 'analytics') { if (!window.location.hash.startsWith('#stats')) window.location.hash = '#stats' }
+    else if (window.location.hash) window.history.replaceState(null, '', window.location.pathname + window.location.search)
+  }
+  useEffect(() => {
+    const onHash = () => { if (window.location.hash.startsWith('#stats')) setTab('analytics') }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   // Settings dropdown
   const [showSettings,  setShowSettings]  = useState(false)
@@ -253,9 +266,6 @@ export default function App() {
         {tab === 'analytics' && <AnalyticsPage
           players={store.players}
           sessions={store.sessions}
-          getPlayer={store.getPlayer}
-          getDisplayName={store.getDisplayName}
-          getAnalytics={store.getAnalytics}
           dataWarnings={store.loadWarnings.filter(w => !tonightWarnings.includes(w))}
         />}
       </main>
@@ -273,7 +283,7 @@ export default function App() {
           return (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => switchTab(t.id)}
               style={{
                 flex: 1,
                 display: 'flex',

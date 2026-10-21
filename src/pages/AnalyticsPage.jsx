@@ -1,540 +1,406 @@
-import { useState } from 'react'
-import Avatar from '../components/Avatar'
-import { getFullName } from '../utils/displayName'
-import { streakStyle } from '../components/InGameStats'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { hasSupabase } from '../supabase'
+import * as db from '../db'
+import { computeAnalytics, rowsFromStore, nightLabel, MIN_PICKS, MIN_HANDS } from '../lib/analytics'
+import { getDisplayName } from '../utils/displayName'
+import { Card, Kpi, Money, PlayerName, ScopeFilter, StreakBadge, WinBar, fmtBase, fmtRate, money, SERIES, OTHER } from '../components/analytics/ui'
+import RunningMoney from '../components/analytics/RunningMoney'
+import Heatmap from '../components/analytics/Heatmap'
+import PlayerProfile from './PlayerProfile'
+import '../components/analytics/analytics.css'
 
-const SORT_OPTIONS = [
-  { id: 'totalPts',    label: 'Total Pts' },
-  { id: 'handsPlayed', label: 'Hands' },
-  { id: 'pickRate',    label: 'Pick%' },
-  { id: 'lonerRate',   label: 'Alone%' },
-]
-
-function StatCard({ label, value }) {
-  return (
-    <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 800 }}>{value}</div>
-    </div>
-  )
+// ── Routing: #stats (dashboard) · #stats/p/<id> (profile) ─────────────────────
+const profileFromHash = () => {
+  const m = window.location.hash.match(/^#stats\/p\/([^/?#]+)/)
+  return m ? decodeURIComponent(m[1]) : null
 }
 
-function Bar({ value, maxValue, color }) {
-  const pct = maxValue === 0 ? 0 : Math.min(100, (Math.abs(value) / Math.abs(maxValue)) * 100)
-  return (
-    <div style={{ height: 4, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 3, transition: 'width 0.4s ease' }} />
-    </div>
-  )
-}
+export default function AnalyticsPage({ players, sessions, dataWarnings = [] }) {
+  // ── Load raw rows (read-only) ──────────────────────────────────────────────
+  // Re-fetch whenever the store's hands change (new hand, edit, remote update).
+  const storeKey = useMemo(() => sessions.map(s =>
+    `${s.id}:${s.players.join('.')}:` + s.hands.map(h => `${h.id}=${Object.values(h.scores ?? {}).join(',')}`).join(';')
+  ).join('|'), [sessions])
 
-// Compact stat tile used in the expanded detail panel
-function DStat({ label, value, sub, color, dim }) {
-  return (
-    <div style={{
-      background: 'var(--bg-base)', border: '1px solid var(--border)',
-      borderRadius: 'var(--radius-sm)', padding: '7px 10px',
-      opacity: dim ? 0.38 : 1, flexShrink: 0,
-    }}>
-      <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 14, fontWeight: 800, color: color ?? 'var(--text-primary)', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
-        {value ?? '—'}
-      </div>
-      {sub != null && (
-        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.2 }}>{sub}</div>
-      )}
-    </div>
-  )
-}
+  const [rows, setRows] = useState(null)
+  const [loadError, setLoadError] = useState(null)
+  const loaded = useRef(false)
 
-// Section header inside the expanded panel
-function DGroup({ title, children }) {
-  return (
-    <div>
-      <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 7 }}>
-        {title}
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {children}
-      </div>
-    </div>
-  )
-}
+  useEffect(() => {
+    if (!hasSupabase) { setRows(rowsFromStore(players, sessions)); return }
+    let alive = true
+    const t = setTimeout(() => {
+      db.getAnalyticsRows()
+        .then(r => { if (alive) { setRows(r); setLoadError(null); loaded.current = true } })
+        .catch(err => {
+          console.error('[Analytics] Could not load stats from the database:', err)
+          if (alive) { setRows(rowsFromStore(players, sessions)); setLoadError(err?.message || String(err)) }
+        })
+    }, loaded.current ? 400 : 0)
+    return () => { alive = false; clearTimeout(t) }
+  }, [storeKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-function sign(n) { return n >= 0 ? '+' : '' }
+  // ── Scope + route ──────────────────────────────────────────────────────────
+  const [scope, setScope] = useState('all')
+  const [profile, setProfile] = useState(profileFromHash)
+  const fromDashboard = useRef(false)
 
-// Derive all per-player detail stats that aren't already in getAnalytics()
-function computeDetail(pid, allHands, stats) {
-  const s = stats[pid]
-  if (!s) return null
+  useEffect(() => {
+    const onHash = () => setProfile(profileFromHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
-  const pickWins    = allHands.filter(h => h.picker === pid && (h.scores?.[pid] ?? 0) > 0).length
-  const pickWinRate = s.asPicker ? Math.round(pickWins / s.asPicker * 100) : null
+  const openPlayer = useCallback(pid => {
+    fromDashboard.current = true
+    window.location.hash = `#stats/p/${encodeURIComponent(pid)}`
+  }, [])
+  // body is the scroll container (html/body are height: 100%), so reset both
+  useEffect(() => { if (profile) { window.scrollTo(0, 0); document.body.scrollTo(0, 0) } }, [profile])
+  const closeProfile = useCallback(() => {
+    if (fromDashboard.current) { fromDashboard.current = false; window.history.back() }
+    else window.location.hash = '#stats'
+  }, [])
 
-  const partnerWins    = allHands.filter(h => !h.isLoner && h.partner === pid && (h.scores?.[pid] ?? 0) > 0).length
-  const partnerWinRate = s.asPartner ? Math.round(partnerWins / s.asPartner * 100) : null
+  // ── Analytics ──────────────────────────────────────────────────────────────
+  const allTime = useMemo(() => rows && computeAnalytics(rows), [rows])
+  const a       = useMemo(() => rows && (scope === 'all' ? allTime : computeAnalytics(rows, { scope })), [rows, scope, allTime])
 
-  const oppWins    = allHands.filter(h =>
-    h.picker !== pid && (h.isLoner || h.partner !== pid) && h.dealerPid !== pid &&
-    h.scores?.[pid] !== undefined && h.scores[pid] > 0
-  ).length
-  const oppWinRate = s.asOpp ? Math.round(oppWins / s.asOpp * 100) : null
+  useEffect(() => {
+    if (allTime && !allTime.check.ok) {
+      console.error(`[Analytics] Data check failed: all players' net adds up to ${allTime.check.sum}, not $0.`)
+    }
+  }, [allTime])
 
-  const activeHands     = s.asPicker + s.asPartner + s.asOpp
-  const partnerCallRate = activeHands ? Math.round(s.asPartner / activeHands * 100) : null
+  // Names / avatars come from the same rows as the stats; photos from the store
+  const roster = useMemo(() => {
+    const list = (rows?.players ?? []).map(p => ({
+      id: p.id, firstName: p.first_name ?? p.firstName ?? '', lastName: p.last_name ?? p.lastName ?? '',
+      photo: p.photo ?? players.find(x => x.id === p.id)?.photo ?? null,
+    }))
+    players.forEach(p => { if (!list.some(x => x.id === p.id)) list.push(p) })
+    return list
+  }, [rows, players])
 
-  let biggestLoss = 0
-  allHands.forEach(h => {
-    const d = h.scores?.[pid] ?? 0
-    if (d < biggestLoss) biggestLoss = d
-  })
+  const ctx = useMemo(() => {
+    const byId = new Map(roster.map(p => [p.id, p]))
+    // Display names; where two still collide (Matt S. / Matt S.) use the full name
+    const names = new Map(roster.map(p => [p.id, getDisplayName(roster, p.id)]))
+    const counts = {}
+    names.forEach(n => { counts[n] = (counts[n] ?? 0) + 1 })
+    roster.forEach(p => {
+      if (counts[names.get(p.id)] > 1) names.set(p.id, `${p.firstName} ${p.lastName}`.trim())
+    })
+    // Colour slots: players in view, ordered by all-time hands, so regulars keep their colour
+    const inView = a ? Object.keys(a.players) : []
+    const order = [...inView].sort((x, y) => (allTime?.players[y]?.hands ?? 0) - (allTime?.players[x]?.hands ?? 0))
+    const slot = new Map(order.slice(0, SERIES.length).map((pid, i) => [pid, i]))
+    return {
+      player: pid => byId.get(pid) ?? null,
+      name: pid => names.get(pid) ?? 'Unknown',
+      colorSlot: pid => slot.get(pid) ?? null,
+      color: pid => slot.has(pid) ? SERIES[slot.get(pid)] : OTHER,
+      openPlayer,
+    }
+  }, [roster, a, allTime, openPlayer])
 
-  const partnerCounts = {}
-  allHands.forEach(h => {
-    if (h.isLoner) return
-    if (h.picker === pid && h.partner)      partnerCounts[h.partner] = (partnerCounts[h.partner] ?? 0) + 1
-    else if (h.partner === pid && h.picker) partnerCounts[h.picker]  = (partnerCounts[h.picker]  ?? 0) + 1
-  })
-  const topP       = Object.entries(partnerCounts).sort((a, b) => b[1] - a[1])[0]
-  const topPartner = topP ? { pid: topP[0], count: topP[1] } : null
-
-  const recrackCount   = allHands.filter(h => (h.recrackers ?? []).includes(pid)).length
-  const shedCleanCount = allHands.filter(h => h.picker === pid && h.shedClean).length
-  const lonerWins      = allHands.filter(h => h.picker === pid && h.isLoner && (h.scores?.[pid] ?? 0) > 0).length
-  const avgPickerPts   = s.asPicker ? Math.round(s.pickerPointsSum / s.asPicker) : null
-  const netPerHand     = activeHands ? Number((s.totalPts / activeHands).toFixed(1)) : null
-
-  return {
-    pickWins, pickWinRate,
-    partnerWins, partnerWinRate,
-    oppWins, oppWinRate,
-    activeHands, partnerCallRate,
-    biggestLoss, topPartner,
-    recrackCount, shedCleanCount,
-    lonerWins, avgPickerPts, netPerHand,
-  }
-}
-
-function PlayerCard({ id, rank, p, s, maxAbs, isNew, expanded, onToggle, allHands, stats, dn }) {
-  const total  = s?.totalPts ?? 0
-  const isPos  = total > 0
-  const isNeg  = total < 0
-  const cur    = s?.currentStreak ?? 0
-  const ss     = streakStyle(cur)
-  const detail = computeDetail(id, allHands, stats)
-
-  const bumpRate    = s?.asPicker    ? Math.round(s.pickerLosses  / s.asPicker    * 100) : 0
-  const pickPct     = s?.handsPlayed ? Math.round(s.asPicker      / s.handsPlayed * 100) : 0
-  const partnerPct  = s?.handsPlayed ? Math.round(s.asPartner     / s.handsPlayed * 100) : 0
-
-  return (
-    <div style={{
-      background: 'var(--bg-surface)',
-      border: `1px solid ${isPos ? 'rgba(34,197,94,0.22)' : isNeg ? 'rgba(239,68,68,0.18)' : 'var(--border)'}`,
-      borderRadius: 'var(--radius)',
-      overflow: 'hidden',
-    }}>
-
-      {/* ── Collapsed header (always visible) ── */}
-      <div
-        onClick={onToggle}
-        style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10, cursor: 'pointer', userSelect: 'none' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{
-            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-            background: rank === 0 ? 'rgba(245,158,11,0.2)' : 'var(--bg-elevated)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12, fontWeight: 800,
-            color: rank === 0 ? 'var(--warning)' : 'var(--text-muted)',
-          }}>#{rank + 1}</span>
-
-          <Avatar player={p} size={32} />
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              {getFullName(p) || dn(id)}
-              {isNew && <span className="badge badge-primary" style={{ fontSize: 9 }}>NEW</span>}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-              {s?.handsPlayed ?? 0} hands · {s?.sessionsPlayed ?? 0} sessions
-            </div>
-          </div>
-
-          {ss && <span style={{ fontSize: 14, flexShrink: 0 }} title={`Current streak: ${cur}`}>{ss.icon}</span>}
-
-          <span style={{
-            fontSize: 21, fontWeight: 900, flexShrink: 0, minWidth: 36, textAlign: 'right',
-            color: isPos ? 'var(--success)' : isNeg ? 'var(--danger)' : 'var(--text-muted)',
-          }}>{sign(total)}{total}</span>
-
-          <span style={{
-            fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, marginLeft: 2,
-            transition: 'transform 0.22s ease',
-            transform: expanded ? 'rotate(180deg)' : 'none',
-          }}>▼</span>
-        </div>
-
-        <Bar
-          value={total}
-          maxValue={maxAbs}
-          color={isPos ? 'var(--success)' : isNeg ? 'var(--danger)' : 'var(--border)'}
-        />
-      </div>
-
-      {/* ── Expandable detail panel ── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateRows: expanded ? '1fr' : '0fr',
-        transition: 'grid-template-rows 0.25s ease',
-      }}>
-        <div style={{ overflow: 'hidden' }}>
-          <div style={{
-            padding: '14px 16px 16px',
-            borderTop: '1px solid var(--border)',
-            display: 'flex', flexDirection: 'column', gap: 16,
-          }}>
-            {detail && (
-              <>
-                {/* ── As Picker ── */}
-                {s.asPicker > 0 && (
-                  <DGroup title="As Picker">
-                    <DStat
-                      label="Picked"
-                      value={s.asPicker}
-                      sub={`${pickPct}% of hands`}
-                    />
-                    <DStat
-                      label="Pick Win%"
-                      value={detail.pickWinRate != null ? `${detail.pickWinRate}%` : null}
-                      color={detail.pickWinRate != null ? (detail.pickWinRate >= 50 ? 'var(--success)' : 'var(--danger)') : undefined}
-                    />
-                    <DStat
-                      label="Avg Card Pts"
-                      value={detail.avgPickerPts}
-                      sub="picker's pts"
-                      color={detail.avgPickerPts != null
-                        ? (detail.avgPickerPts >= 61 ? 'var(--success)'
-                          : detail.avgPickerPts >= 30 ? 'var(--warning)'
-                          : 'var(--danger)')
-                        : undefined}
-                    />
-                    <DStat
-                      label="Net as Picker"
-                      value={`${sign(s.pickerPts)}${s.pickerPts}`}
-                      color={(s.pickerPts ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)'}
-                    />
-                    <DStat
-                      label="Bumped"
-                      value={s.pickerLosses}
-                      sub={s.asPicker ? `${bumpRate}% of picks` : ''}
-                      color={s.pickerLosses > 0 ? (bumpRate > 55 ? 'var(--danger)' : 'var(--warning)') : undefined}
-                      dim={s.pickerLosses === 0}
-                    />
-                    <DStat
-                      label="Schneidered ✂️"
-                      value={s.schneiderCount}
-                      color={s.schneiderCount > 0 ? '#f97316' : undefined}
-                      dim={s.schneiderCount === 0}
-                    />
-                    <DStat
-                      label="Shed Cleans"
-                      value={detail.shedCleanCount}
-                      color={detail.shedCleanCount > 0 ? 'var(--success)' : undefined}
-                      dim={detail.shedCleanCount === 0}
-                    />
-                    {s.lonerCount > 0 && (
-                      <DStat
-                        label="Loners"
-                        value={s.lonerCount}
-                        sub={`${detail.lonerWins}W / ${s.lonerCount - detail.lonerWins}L`}
-                        color="var(--warning)"
-                      />
-                    )}
-                  </DGroup>
-                )}
-
-                {/* ── As Partner ── */}
-                {s.asPartner > 0 && (
-                  <DGroup title="As Partner">
-                    <DStat
-                      label="Called"
-                      value={s.asPartner}
-                      sub={detail.partnerCallRate != null ? `${detail.partnerCallRate}% of active` : ''}
-                    />
-                    <DStat
-                      label="Partner Win%"
-                      value={detail.partnerWinRate != null ? `${detail.partnerWinRate}%` : null}
-                      color={detail.partnerWinRate != null ? (detail.partnerWinRate >= 50 ? 'var(--success)' : 'var(--danger)') : undefined}
-                    />
-                    <DStat
-                      label="Net as Partner"
-                      value={`${sign(s.partnerPts)}${s.partnerPts}`}
-                      color={(s.partnerPts ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)'}
-                    />
-                    {detail.topPartner && (
-                      <DStat
-                        label="Most Often With"
-                        value={dn(detail.topPartner.pid)}
-                        sub={`${detail.topPartner.count}× together`}
-                        color="var(--primary)"
-                      />
-                    )}
-                  </DGroup>
-                )}
-
-                {/* ── As Opponent ── */}
-                {s.asOpp > 0 && (
-                  <DGroup title="As Opponent">
-                    <DStat
-                      label="Hands Opp"
-                      value={s.asOpp}
-                      sub={detail.activeHands ? `${Math.round(s.asOpp / detail.activeHands * 100)}% of active` : ''}
-                    />
-                    <DStat
-                      label="Opp Win%"
-                      value={detail.oppWinRate != null ? `${detail.oppWinRate}%` : null}
-                      color={detail.oppWinRate != null ? (detail.oppWinRate >= 50 ? 'var(--success)' : 'var(--danger)') : undefined}
-                    />
-                    <DStat
-                      label="Net as Opp"
-                      value={`${sign(s.oppPts)}${s.oppPts}`}
-                      color={(s.oppPts ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)'}
-                    />
-                  </DGroup>
-                )}
-
-                {/* ── Multipliers ── */}
-                {(s.crackCount > 0 || detail.recrackCount > 0 || s.blitzCount > 0) && (
-                  <DGroup title="Multipliers Declared">
-                    {s.crackCount > 0         && <DStat label="Cracks"    value={s.crackCount}         color="var(--warning)" />}
-                    {detail.recrackCount > 0  && <DStat label="Re-cracks" value={detail.recrackCount}  color="var(--warning)" />}
-                    {s.blitzCount > 0         && <DStat label="Blitzes"   value={s.blitzCount}         color="var(--danger)"  />}
-                  </DGroup>
-                )}
-
-                {/* ── Overall ── */}
-                <DGroup title="Overall">
-                  <DStat
-                    label="Best Hand"
-                    value={s.biggestHandWin > 0 ? `+${s.biggestHandWin}` : null}
-                    color="var(--success)"
-                    dim={!s.biggestHandWin}
-                  />
-                  <DStat
-                    label="Worst Hand"
-                    value={detail.biggestLoss < 0 ? `${detail.biggestLoss}` : null}
-                    color="var(--danger)"
-                    dim={detail.biggestLoss >= 0}
-                  />
-                  <DStat
-                    label="Net / Hand"
-                    value={detail.netPerHand != null ? `${sign(detail.netPerHand)}${detail.netPerHand}` : null}
-                    color={detail.netPerHand != null
-                      ? (detail.netPerHand > 0 ? 'var(--success)' : detail.netPerHand < 0 ? 'var(--danger)' : undefined)
-                      : undefined}
-                  />
-                  <DStat
-                    label="Best Streak"
-                    value={s.longestWinStreak || null}
-                    color="var(--success)"
-                    dim={!s.longestWinStreak}
-                  />
-                  <DStat
-                    label="Worst Streak"
-                    value={s.longestLossStreak || null}
-                    color="var(--danger)"
-                    dim={!s.longestLossStreak}
-                  />
-                  {(s.fupCount ?? 0) > 0 && (
-                    <DStat
-                      label="F-Ups 💩"
-                      value={s.fupCount}
-                      color="var(--danger)"
-                    />
-                  )}
-                </DGroup>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-    </div>
-  )
-}
-
-export default function AnalyticsPage({ players, sessions, getPlayer, getDisplayName, getAnalytics, dataWarnings = [] }) {
-  const [sortBy,     setSortBy]     = useState('totalPts')
-  const [expandedId, setExpandedId] = useState(null)
-
-  const dn         = getDisplayName ?? ((pid) => getPlayer(pid)?.firstName ?? pid)
-  const stats      = getAnalytics()
-  const allHands   = sessions.flatMap(s => s.hands)
-  const totalHands = allHands.length
-
-  const playerIds = players.map(p => p.id).filter(id => stats[id])
-
-  const getSortValue = (id) => {
-    const s = stats[id]
-    if (!s) return 0
-    if (sortBy === 'totalPts')    return s.totalPts
-    if (sortBy === 'handsPlayed') return s.handsPlayed
-    if (sortBy === 'pickRate')    return s.handsPlayed ? s.asPicker / s.handsPlayed : 0
-    if (sortBy === 'lonerRate')   return s.asPicker    ? s.lonerCount / s.asPicker  : 0
-    return 0
+  if (!rows || !a) {
+    return <div className="an-page"><div className="an-empty an-loading">Loading stats…</div></div>
   }
 
-  const ranked = [...playerIds].sort((a, b) => getSortValue(b) - getSortValue(a))
-  const maxAbs = Math.max(1, ...ranked.map(id => Math.abs(stats[id]?.totalPts ?? 0)))
-  const isNew  = (id) => (stats[id]?.sessionsPlayed ?? 0) <= 1 && (stats[id]?.handsPlayed ?? 0) > 0
+  const notes = (
+    <DataNotes a={allTime} loadError={loadError} dataWarnings={dataWarnings} offline={!hasSupabase} />
+  )
 
-  const handleToggle = (id) => setExpandedId(prev => prev === id ? null : id)
+  if (profile) {
+    return (
+      <div className="an-page an-page-profile">
+        <PlayerProfile a={a} allTime={allTime} pid={profile} ctx={ctx}
+          scope={scope} setScope={setScope} onBack={closeProfile} />
+        {notes}
+      </div>
+    )
+  }
 
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800 }}>Stats</h1>
-        <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>All-time stats for the Shed</div>
-      </div>
+    <div className="an-page">
+      <Dashboard a={a} ctx={ctx} scope={scope} setScope={setScope} />
+      {notes}
+    </div>
+  )
+}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 24 }}>
-        <StatCard label="Sessions"    value={sessions.length} />
-        <StatCard label="Total Hands" value={totalHands} />
-        <StatCard label="Players"     value={players.length} />
-      </div>
+// ── Dashboard ─────────────────────────────────────────────────────────────────
 
-      {totalHands === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-          No games logged yet. Play some Sheepshead!
+function Dashboard({ a, ctx, scope, setScope }) {
+  const { kpis, players: P, ranking, single } = a
+  const inView = ranking.filter(pid => P[pid].hands > 0)
+  const scopeText = single ? nightLabel(a.night, { long: true }) : 'All-time'
+
+  return (
+    <>
+      <header className="an-head">
+        <div>
+          <h1 className="an-title">THE SHED <span>/</span> ANALYTICS</h1>
+          <div className="an-subline">
+            {scopeText} · {kpis.nights} night{kpis.nights === 1 ? '' : 's'} · {kpis.hands} hands · {kpis.players} players
+          </div>
         </div>
+        <div className="an-head-filters">
+          <ScopeFilter scope={scope} setScope={setScope} nights={a.allNights} />
+          <select className="an-select" value="" onChange={e => e.target.value && ctx.openPlayer(e.target.value)} aria-label="Open a player's profile">
+            <option value="">Player…</option>
+            {[...inView].sort((x, y) => ctx.name(x).localeCompare(ctx.name(y))).map(pid => <option key={pid} value={pid}>{ctx.name(pid)}</option>)}
+          </select>
+        </div>
+      </header>
+
+      {kpis.hands === 0 ? (
+        <div className="an-empty">No hands logged {single ? 'that night' : 'yet'}. Play some Sheepshead!</div>
       ) : (
         <>
-          {/* Sort controls */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Sort by</div>
-            <div className="toggle-group">
-              {SORT_OPTIONS.map(o => (
-                <button key={o.id} className={`toggle-btn ${sortBy === o.id ? 'active' : ''}`} onClick={() => setSortBy(o.id)}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
+          <div className="an-kpis">
+            <Kpi label="Nights" value={kpis.nights} />
+            <Kpi label="Hands" value={kpis.hands} />
+            <Kpi label="$ moved" value={money(kpis.moved, { sign: false })} />
+            <Kpi label="Biggest hand" value={kpis.biggestHand ? money(kpis.biggestHand.delta) : '—'}
+              sub={kpis.biggestHand && `${ctx.name(kpis.biggestHand.pid)} · ${nightLabel(kpis.biggestHand.night)} · ×${kpis.biggestHand.mult}`} />
+            <Kpi label="Picker win %" value={kpis.pickerWin.pct == null ? '—' : `${Math.round(kpis.pickerWin.pct * 100)}%`}
+              sub={`${kpis.pickerWin.num} of ${kpis.pickerWin.den}`} />
+            <Kpi label="Avg multiplier" value={kpis.avgMult == null ? '—' : `×${kpis.avgMult.toFixed(1)}`} />
+            <Kpi label="Crack rate" value={kpis.crackRate.pct == null ? '—' : `${Math.round(kpis.crackRate.pct * 100)}%`}
+              sub={`${kpis.crackRate.num} of ${kpis.crackRate.den} hands`} />
           </div>
 
-          {/* Fun stats callout */}
-          {(() => {
-            const mostSchneidered = ranked.reduce((best, id) => {
-              const sc = stats[id]?.schneiderCount ?? 0
-              return sc > (stats[best]?.schneiderCount ?? 0) ? id : best
-            }, ranked[0])
-            const sc       = stats[mostSchneidered]?.schneiderCount ?? 0
-            const mostWins = [...ranked].sort((a, b) => (stats[b]?.wins ?? 0) - (stats[a]?.wins ?? 0))[0]
-            if (!sc && !mostWins) return null
-            return (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-                {sc > 0 && (
-                  <div style={{ flex: 1, minWidth: 140, background: 'var(--bg-elevated)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 'var(--radius)', padding: '10px 14px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Most Schneidered ✂️</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Avatar player={getPlayer(mostSchneidered)} size={22} />
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{dn(mostSchneidered)}</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#f97316', marginTop: 3 }}>{sc}× schneidered</div>
-                  </div>
-                )}
-                {mostWins && (stats[mostWins]?.wins ?? 0) > 0 && (
-                  <div style={{ flex: 1, minWidth: 140, background: 'var(--bg-elevated)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--radius)', padding: '10px 14px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Most Wins 🏆</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Avatar player={getPlayer(mostWins)} size={22} />
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{dn(mostWins)}</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--success)', marginTop: 3 }}>{stats[mostWins]?.wins} hands won</div>
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-
-          {/* Leaderboard */}
-          <div style={{ marginBottom: 28 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
-              Leaderboard
-              <span style={{ fontSize: 10, fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 8 }}>· tap to expand</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {ranked.map((id, rank) => (
-                <PlayerCard
-                  key={id}
-                  id={id}
-                  rank={rank}
-                  p={getPlayer(id)}
-                  s={stats[id]}
-                  maxAbs={maxAbs}
-                  isNew={isNew(id)}
-                  expanded={expandedId === id}
-                  onToggle={() => handleToggle(id)}
-                  allHands={allHands}
-                  stats={stats}
-                  dn={dn}
-                />
-              ))}
-            </div>
+          <div className="an-row an-row-lead">
+            <Card title="Leaderboard">
+              <Leaderboard a={a} ctx={ctx} ids={ranking} />
+            </Card>
+            <Card title="Running money" aside={single ? 'by hand' : 'by night'}>
+              <RunningMoney running={a.running} ctx={ctx} />
+            </Card>
           </div>
 
-          {/* Session history */}
-          {sessions.length > 0 && (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Session History</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {[...sessions].reverse().map(sess => {
-                  const t = {}
-                  sess.players.forEach(pid => { t[pid] = 0 })
-                  sess.hands.forEach(h => Object.entries(h.scores ?? {}).forEach(([pid, d]) => { t[pid] = (t[pid] ?? 0) + d }))
-                  const winner  = [...sess.players].sort((a, b) => (t[b] ?? 0) - (t[a] ?? 0))[0]
-                  const dateStr = new Date(sess.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                  return (
-                    <div key={sess.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{dateStr}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                          {sess.hands.length} hands · {sess.players.map(pid => dn(pid)).join(', ')}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Winner</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <Avatar player={getPlayer(winner)} size={20} />
-                          <span style={{ fontWeight: 700, color: 'var(--warning)' }}>{dn(winner)}</span>
-                        </div>
-                      </div>
-                      {sess.active && <span className="badge badge-success">Live</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+          <div className="an-row">
+            <Card title="Picking" aside={single ? 'counts for this night' : `rates need ${MIN_PICKS}+ picks`}>
+              <PickingTable a={a} ctx={ctx} />
+            </Card>
+            <Card title="Chemistry" aside="picker × partner">
+              <Heatmap chemistry={a.chemistry} ctx={ctx} />
+              <DuoLines chem={a.chemistry} ctx={ctx} />
+            </Card>
+          </div>
+
+          <div className="an-row">
+            <Card title="Defense & guts" aside={single ? 'counts for this night' : `rates need ${MIN_HANDS}+ hands`}>
+              <DefenseTable a={a} ctx={ctx} ids={inView} />
+            </Card>
+            <Card title="Record book">
+              <RecordBook r={a.records} ctx={ctx} />
+            </Card>
+          </div>
+
+          <Card title="Awards wall" className="an-awards-card">
+            <AwardsWall awards={a.awards} ctx={ctx} />
+          </Card>
         </>
       )}
+    </>
+  )
+}
 
-      {/* Data health — issues found in past nights' stored data. Read-only: nothing here changes scores. */}
-      {dataWarnings.length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Data health</div>
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: 13, lineHeight: 1.45 }}>
-            <div style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-              Notes on past nights' stored data. Stored scores are never changed by the app.
-            </div>
-            <ul style={{ margin: 0, paddingLeft: 18, wordBreak: 'break-word' }}>
-              {dataWarnings.map((w, i) => <li key={i}>{w.text}</li>)}
-            </ul>
+function Leaderboard({ a, ctx, ids }) {
+  const P = a.players
+  return (
+    <div className="an-scroll">
+      <table className="an-table an-lead">
+        <thead>
+          <tr><th className="an-c">#</th><th>Player</th><th className="an-r">Net $</th><th className="an-r">$/hand</th><th className="an-r">Base</th><th className="an-r">Nights won</th><th className="an-c">Streak</th></tr>
+        </thead>
+        <tbody>
+          {ids.map(pid => {
+            const p = P[pid]
+            return (
+              <tr key={pid}>
+                <td className="an-c an-num an-rank">{p.rank}</td>
+                <td><PlayerName pid={pid} ctx={ctx} size={34} sub={`${p.hands} hands`} /></td>
+                <td className="an-r"><Money value={p.net} className="an-big" /></td>
+                <td className="an-r an-num" style={{ color: 'var(--text-secondary)' }}>{p.perHand == null ? '—' : money(p.perHand, { cents: true })}</td>
+                <td className="an-r an-num">{fmtBase(p.base)}</td>
+                <td className="an-r an-num">{p.nightsWon || <span className="an-muted">0</span>}</td>
+                <td className="an-c"><StreakBadge n={p.current} /></td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function PickingTable({ a, ctx }) {
+  const P = a.players, single = a.single
+  const ids = a.ranking.filter(pid => P[pid].picks > 0).sort((x, y) => P[y].picks - P[x].picks || P[y].net - P[x].net)
+  if (!ids.length) return <div className="an-empty">No picks yet.</div>
+  return (
+    <div className="an-scroll">
+      <table className="an-table">
+        <thead>
+          <tr><th>Player</th><th className="an-r">Picks</th><th className="an-r">Pick rate</th><th>Win %</th><th className="an-r">$ / pick</th><th className="an-r">Avg pts</th><th className="an-r">Bumped</th><th className="an-r">Loner W–L</th></tr>
+        </thead>
+        <tbody>
+          {ids.map(pid => {
+            const p = P[pid]
+            return (
+              <tr key={pid}>
+                <td><PlayerName pid={pid} ctx={ctx} size={26} /></td>
+                <td className="an-r an-num">{p.picks}</td>
+                <td className="an-r an-num">{fmtRate(p.pickRate, single)}</td>
+                <td><WinBar rate={p.pickWin} single={single} /></td>
+                <td className="an-r">{p.perPick == null ? <span className="an-muted">—</span> : <Money value={p.perPick} />}</td>
+                <td className="an-r an-num">{p.avgPoints == null ? '—' : Math.round(p.avgPoints)}</td>
+                <td className="an-r an-num">{fmtRate(p.bumped, single)}</td>
+                <td className="an-r an-num">{p.loners ? `${p.lonerWins}–${p.loners - p.lonerWins}` : '—'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function DuoLines({ chem, ctx }) {
+  const line = (label, d) => d && (
+    <div className="an-duo">
+      <span className="an-duo-label">{label}</span>
+      <span className="an-duo-who">
+        <PlayerName pid={d.a} ctx={ctx} size={22} /> <span className="an-muted">&</span> <PlayerName pid={d.b} ctx={ctx} size={22} />
+      </span>
+      <span className="an-num an-duo-stat">{d.wins} of {d.hands} · {Math.round(d.pct * 100)}%</span>
+    </div>
+  )
+  if (!chem.bestDuo) return <div className="an-duos an-muted">No pair has played 3 hands together yet.</div>
+  return (
+    <div className="an-duos">
+      {line('Best duo', chem.bestDuo)}
+      {chem.worstDuo && chem.worstDuo !== chem.bestDuo && line('Worst duo', chem.worstDuo)}
+    </div>
+  )
+}
+
+function DefenseTable({ a, ctx, ids }) {
+  const P = a.players, single = a.single
+  return (
+    <div className="an-scroll">
+      <table className="an-table">
+        <thead>
+          <tr><th>Player</th><th className="an-r">Bumps picker</th><th className="an-r">Cracks</th><th className="an-r">Crack win %</th><th className="an-r">Crack $</th><th className="an-r">Re-cracks</th><th className="an-r">Blitzes</th><th className="an-r">F-ups</th></tr>
+        </thead>
+        <tbody>
+          {ids.map(pid => {
+            const p = P[pid]
+            return (
+              <tr key={pid}>
+                <td><PlayerName pid={pid} ctx={ctx} size={26} /></td>
+                <td className="an-r an-num">{fmtRate(p.defense, single)}</td>
+                <td className="an-r an-num">{p.cracks || <span className="an-muted">0</span>}</td>
+                <td className="an-r an-num">{fmtRate(p.crackWin, single)}</td>
+                <td className="an-r">{p.cracks ? <Money value={p.crackNet} /> : <span className="an-muted">—</span>}</td>
+                <td className="an-r an-num">{p.recracks || <span className="an-muted">0</span>}</td>
+                <td className="an-r an-num">{p.blitzes || <span className="an-muted">0</span>}</td>
+                <td className="an-r an-num">{p.fups || <span className="an-muted">0</span>}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RecordBook({ r, ctx }) {
+  const range = x => (x.from === x.to ? nightLabel(x.from) : `${nightLabel(x.from)} – ${nightLabel(x.to)}`) +
+    (x.tied?.length ? ` · tied with ${x.tied.map(ctx.name).join(', ')}` : '')
+  const items = [
+    ['Biggest hand', r.biggestHand, x => money(x.delta), x => `${nightLabel(x.night)} · hand #${x.num} · ×${x.mult}`],
+    ['Worst hand',   r.worstHand,   x => money(x.delta), x => `${nightLabel(x.night)} · hand #${x.num} · ×${x.mult}`],
+    ['Longest hot streak',  r.hotStreak,  x => `🔥 ${x.len}`, range],
+    ['Longest cold streak', r.coldStreak, x => `🥶 ${x.len}`, range],
+    ['Best night',  r.bestNight,  x => money(x.net), x => nightLabel(x.night, { long: true })],
+    ['Worst night', r.worstNight, x => money(x.net), x => nightLabel(x.night, { long: true })],
+  ]
+  return (
+    <div className="an-records">
+      {items.map(([label, x, val, when]) => (
+        <div key={label} className="an-record">
+          <div className="an-record-label">{label}</div>
+          {x ? (
+            <>
+              <div className="an-record-main">
+                <PlayerName pid={x.pid} ctx={ctx} size={28} />
+                <span className="an-num an-record-val" style={{ color: x.delta < 0 || x.net < 0 ? 'var(--danger)' : x.delta > 0 || x.net > 0 ? 'var(--success)' : undefined }}>{val(x)}</span>
+              </div>
+              <div className="an-record-when">{when(x)}</div>
+            </>
+          ) : <div className="an-muted">—</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function AwardsWall({ awards, ctx }) {
+  if (!awards.length) return <div className="an-empty">No awards yet.</div>
+  return (
+    <div className="an-awards">
+      {awards.map(aw => (
+        <div key={aw.id} className="an-award">
+          <div className="an-award-title"><span aria-hidden>{aw.emoji}</span> {aw.title}</div>
+          <div className="an-award-who">
+            {aw.winners.slice(0, 3).map(pid => <PlayerName key={pid} pid={pid} ctx={ctx} size={30} />)}
+            {aw.winners.length > 3 && <span className="an-muted">+{aw.winners.length - 3} tied</span>}
           </div>
+          <div className="an-award-reason">{aw.winners.length > 1 && !aw.duo ? 'Tied · ' : ''}{aw.reason}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Data notes (bottom of page) ───────────────────────────────────────────────
+
+function DataNotes({ a, loadError, dataWarnings, offline }) {
+  const byNight = {}
+  a.misaligned.forEach(m => { (byNight[m.night] ??= []).push(m) })
+  const hasAny = !a.check.ok || a.misaligned.length || loadError || dataWarnings.length || offline
+  if (!hasAny) return null
+  return (
+    <footer className="an-notes">
+      {!a.check.ok && (
+        <div className="an-note an-note-bad">
+          <strong>Data check failed:</strong> all players' net adds up to {money(a.check.sum)}, not $0.
         </div>
       )}
-    </div>
+      {a.misaligned.length > 0 && (
+        <div className="an-note">
+          <strong>Data check:</strong> {a.misaligned.length} hands have scores that are probably on the wrong seats
+          (a player was moved after these hands were saved). Stats use them as stored.
+          <ul>
+            {Object.entries(byNight).map(([n, ms]) => (
+              <li key={n}>{nightLabel(n, { long: true })}: {ms.map(m => `#${m.num}`).join(', ')}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {loadError && <div className="an-note">Couldn't load from the database ({loadError}) — showing this device's saved copy.</div>}
+      {offline && <div className="an-note">Offline mode: stats use this device's saved copy; multipliers are rebuilt from each hand.</div>}
+      {dataWarnings.length > 0 && (
+        <div className="an-note">
+          <strong>Data health:</strong>
+          <ul>{dataWarnings.map((w, i) => <li key={i}>{w.text}</li>)}</ul>
+        </div>
+      )}
+    </footer>
   )
 }

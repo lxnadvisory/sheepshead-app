@@ -384,6 +384,27 @@ export function validateLoadedHand(row, hand, seatOrder) {
   return issues
 }
 
+// ── Analytics (read-only) ─────────────────────────────────────────────────────
+
+async function selectAll(table) {
+  const rows = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from(table).select('*').range(from, from + 999)
+    if (error) throw error
+    rows.push(...(data || []))
+    if (!data || data.length < 1000) return rows
+  }
+}
+
+/**
+ * Raw players / sessions / hands rows, unmapped, for src/lib/analytics.js.
+ * SELECT only — the analytics page never writes.
+ */
+export async function getAnalyticsRows() {
+  const [players, sessions, hands] = await Promise.all(['players', 'sessions', 'hands'].map(selectAll))
+  return { players, sessions, hands }
+}
+
 /**
  * Load a session's hands. Rows that fail to map are skipped but reported in
  * `issues`, as are rows that load but fail validation (those stay visible).

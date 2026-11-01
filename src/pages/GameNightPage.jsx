@@ -582,7 +582,9 @@ function PastSessionCard({ session, getPlayer, getDisplayName, getSessionTotals,
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700 }}>{dateStr}</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-            {session.hands.length} hands · {session.players.map(pid => getDisplayName(pid)).join(', ')}
+            {session.stale
+              ? (session.hands.length ? `${session.hands.length} hands (cached copy)` : 'hands not loaded yet')
+              : `${session.hands.length} hands`} · {session.players.map(pid => getDisplayName(pid)).join(', ')}
           </div>
         </div>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>

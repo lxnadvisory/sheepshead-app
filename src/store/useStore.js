@@ -22,6 +22,30 @@ function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
 }
 
+// ── Session cache ─────────────────────────────────────────────────────────────
+// shed:sessions is this device's own games plus a read-only cache of the DB.
+// Sessions this device didn't play are only (re)written from a copy the DB
+// handed us this run (`fromDb`); otherwise the earlier cached entry is kept.
+// `fromDb` / `stale` are in-memory only.
+const PLAYED_HERE_KEY = 'shed:playedHere'
+const loadPlayedHere = () => new Set(load(PLAYED_HERE_KEY, []))
+function markPlayedHere(sessionId) {
+  const ids = loadPlayedHere()
+  if (ids.has(sessionId)) return
+  ids.add(sessionId)
+  save(PLAYED_HERE_KEY, [...ids])
+}
+
+function saveSessions(sessions) {
+  const playedHere = loadPlayedHere()
+  const cached     = new Map(load('shed:sessions', []).map(s => [s.id, s]))
+  save('shed:sessions', sessions.map(sess => {
+    const { fromDb, stale: _stale, ...plain } = sess
+    if (fromDb || playedHere.has(sess.id) || !cached.has(sess.id)) return plain
+    return cached.get(sess.id)
+  }))
+}
+
 // ── Migration helpers ─────────────────────────────────────────────────────────
 function migratePlayers(players) {
   return players.map(p => ({
@@ -142,9 +166,12 @@ function ensureUUIDs(state) {
 
 // ── Initial state ─────────────────────────────────────────────────────────────
 function initState() {
+  const playedHere = loadPlayedHere()
   return {
     players:  migratePlayers(load('shed:players',  DEFAULT_PLAYERS)),
-    sessions: migrateSessions(load('shed:sessions', [])),
+    // Until the DB load lands, other devices' nights are only a cached copy
+    sessions: migrateSessions(load('shed:sessions', []))
+      .map(s => hasSupabase && !playedHere.has(s.id) ? { ...s, stale: true } : s),
   }
 }
 
@@ -174,7 +201,7 @@ export function useStore() {
       const next = updater(prev)
       stateRef.current = next
       save('shed:players',  next.players)
-      save('shed:sessions', next.sessions)
+      saveSessions(next.sessions)
       return next
     })
   }, [])
@@ -232,16 +259,20 @@ export function useStore() {
             const dateLabel = new Date(sess.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
             let hands
             try {
+              // One retry: a dropped request shouldn't leave a night showing no hands
               const res = await db.getHandsBySession(sess.id, sess.players)
+                .catch(() => db.getHandsBySession(sess.id, sess.players))
               hands = res.hands
               res.issues.forEach(msg => warnings.push({ sessionId: sess.id, text: `${dateLabel}: ${msg}` }))
             } catch (err) {
               console.error(`[Supabase] Loading hands for session ${sess.id} failed:`, err)
-              warnings.push({ sessionId: sess.id, text: `${dateLabel}: hands could not be loaded from the database (${err?.message || err}) — showing this device's saved copy instead.` })
-              return { ...sess, ...(localSess ?? {}), id: sess.id, players: sess.players, active: sess.active, hands: localSess?.hands ?? [] }
+              const localHands = localSess?.hands ?? []
+              warnings.push({ sessionId: sess.id, text: `${dateLabel}: hands could not be loaded from the database (${err?.message || err}) — ` +
+                (localHands.length ? `showing this device's saved copy (${localHands.length} hands), which may be out of date.` : 'none are shown until the next reload.') })
+              return { ...sess, ...(localSess ?? {}), id: sess.id, players: sess.players, active: sess.active, hands: localHands, stale: true }
             }
 
-            if (!localSess) return { ...sess, hands }
+            if (!localSess) return { ...sess, hands, fromDb: true }
 
             // Hands this device has that the DB doesn't — don't hide that silently
             const dbIds   = new Set(hands.map(h => h.id))
@@ -259,6 +290,7 @@ export function useStore() {
             return {
               ...sess,
               hands,
+              fromDb: true,
               leftPlayers:        localSess.leftPlayers ?? [],
               ...(sameHands ? {
                 dealerIndex:        localSess.dealerIndex ?? sess.dealerIndex,
@@ -386,7 +418,7 @@ export function useStore() {
             )
             const next = { ...prev, sessions: updated }
             stateRef.current = next
-            save('shed:sessions', next.sessions)
+            saveSessions(next.sessions)
             return next
           })
         }
@@ -406,7 +438,7 @@ export function useStore() {
             }))
             const next = { ...prev, sessions: updated }
             stateRef.current = next
-            save('shed:sessions', next.sessions)
+            saveSessions(next.sessions)
             return next
           })
         }
@@ -426,7 +458,7 @@ export function useStore() {
             if (!sess || sess.active === active) return prev
             const next = { ...prev, sessions: prev.sessions.map(s => s.id === row.id ? { ...s, active } : s) }
             stateRef.current = next
-            save('shed:sessions', next.sessions)
+            saveSessions(next.sessions)
             return next
           })
         }
@@ -479,6 +511,7 @@ export function useStore() {
       lastRoundRemaining: 0,
     }
     await persist('Start game night', () => db.createSession(session))
+    markPlayedHere(session.id)
     update(s => ({ ...s, sessions: [...s.sessions, session] }))
     setDeviceSession(session.id)
     return session.id
@@ -502,6 +535,7 @@ export function useStore() {
 
   const reopenSession = useCallback(async (sessionId) => {
     await persist('Reopen night', () => db.updateSession(sessionId, { active: true }))
+    markPlayedHere(sessionId)
     setDeviceSession(sessionId)
     update(s => ({
       ...s,
@@ -549,6 +583,7 @@ export function useStore() {
 
     await persist(hand.handType === 'fup' ? 'Save F-Up' : 'Save hand',
       () => db.addHand(fullHand, sessionId, sess.players))
+    markPlayedHere(sessionId)
 
     update(s => ({
       ...s,

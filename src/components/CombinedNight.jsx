@@ -3,6 +3,7 @@ import { hasSupabase } from '../supabase'
 import * as db from '../db'
 import { combineSessions, tableLabel } from '../utils/combined'
 import Settlement from './Settlement'
+import { nightKey } from '../lib/analytics'
 
 const APP_URL = 'https://sheepshead-app.vercel.app/'
 
@@ -125,7 +126,7 @@ async function loadTodaysTables() {
  * Read-only view of every session started today, combined. Always reloads from
  * Supabase (never this device's copy) so both tables' latest hands are counted.
  */
-export default function CombinedNight({ getPlayer, getDisplayName, endSession, onClose, loadTables = loadTodaysTables }) {
+export default function CombinedNight({ getPlayer, getDisplayName, endSession, updatePlayer, onClose, loadTables = loadTodaysTables }) {
   const dn = getDisplayName ?? (pid => getPlayer(pid)?.firstName ?? pid)
 
   const [sessions,     setSessions]     = useState([])
@@ -250,6 +251,8 @@ export default function CombinedNight({ getPlayer, getDisplayName, endSession, o
             getDisplayName={getDisplayName}
             buildEmail={(transfers) => buildCombinedEmail({ tables, players: ranked, night, transfers, getPlayer, dn })}
             autoOpen={justFinalized}
+            textNight={{ nightDate: nightKey(tables[0].date), sessionIds: tables.map(t => t.id) }}
+            updatePlayer={updatePlayer}
           />
         )}
 

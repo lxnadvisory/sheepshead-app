@@ -256,6 +256,7 @@ export default function App() {
           getLiveSessions={store.getLiveSessions}
           openTable={store.openTable}
           showTableList={store.showTableList}
+          updatePlayer={store.updatePlayer}
         />}
         {tab === 'roster'    && <RosterPage
           players={store.players}

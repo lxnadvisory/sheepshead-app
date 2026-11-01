@@ -8,6 +8,7 @@ import CombinedNight      from '../components/CombinedNight'
 import InGameStats, { computeStreaks, streakStyle } from '../components/InGameStats'
 import Avatar from '../components/Avatar'
 import { exportData } from '../utils/backup'
+import { nightKey } from '../lib/analytics'
 
 const SEAT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th']
 
@@ -133,7 +134,7 @@ function pickToast(hand) {
   return null
 }
 
-function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, onShowTables, onOpenCombined }) {
+function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, onShowTables, onOpenCombined, updatePlayer }) {
   const [showModal,          setShowModal]          = useState(false)
   const [showFup,            setShowFup]            = useState(false)
   const [showSettle,         setShowSettle]         = useState(false)
@@ -324,6 +325,8 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
             getPlayer={getPlayer}
             getDisplayName={getDisplayName}
             session={session}
+            textNight={{ nightDate: nightKey(session.date), sessionIds: [session.id] }}
+            updatePlayer={updatePlayer}
           />
         </div>
       ) : (
@@ -622,7 +625,7 @@ export default function GameNightPage({
   activateLastRound, addSessionPlayer,
   insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,
   getPlayer, getDisplayName, getActiveSession, getSessionTotals,
-  reopenSession, getLiveSessions, openTable, showTableList,
+  reopenSession, getLiveSessions, openTable, showTableList, updatePlayer,
 }) {
   const [backupSession, setBackupSession] = useState(null)
   const [showCombined,  setShowCombined]  = useState(false)
@@ -635,6 +638,7 @@ export default function GameNightPage({
         getPlayer={getPlayer}
         getDisplayName={getDisplayName}
         endSession={endSession}
+        updatePlayer={updatePlayer}
         onClose={() => setShowCombined(false)}
       />
     )
@@ -665,6 +669,7 @@ export default function GameNightPage({
         reorderSessionPlayers={reorderSessionPlayers}
         onShowTables={showTableList}
         onOpenCombined={() => setShowCombined(true)}
+        updatePlayer={updatePlayer}
       />
     )
   }

@@ -384,6 +384,66 @@ export function validateLoadedHand(row, hand, seatOrder) {
   return issues
 }
 
+// ── Night share links (/night/<token>) ────────────────────────────────────────
+
+/** 24 url-safe chars from 18 random bytes; unrelated to any session id. */
+function randomToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(18))
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/**
+ * The share token for this night + set of tables. Reuses an existing link;
+ * creates one on first use. nightDate is 'YYYY-MM-DD'.
+ */
+export async function getOrCreateNightShare(nightDate, sessionIds) {
+  const ids = [...sessionIds].sort()
+  const { data, error } = await supabase
+    .from('night_shares').select('token, session_ids').eq('night_date', nightDate)
+  if (error) throw error
+  const existing = (data || []).find(r => [...(r.session_ids || [])].sort().join() === ids.join())
+  if (existing) return existing.token
+
+  const token = randomToken()
+  const { error: insertError } = await supabase
+    .from('night_shares').insert({ token, night_date: nightDate, session_ids: ids })
+  if (insertError) throw insertError
+  return token
+}
+
+/**
+ * Everything the public night page shows, looked up by token only. Players
+ * come back as names only (no phone, email or venmo). null = no such link.
+ */
+export async function getNightShare(token) {
+  const { data: share, error } = await supabase
+    .from('night_shares').select('night_date, session_ids').eq('token', token).maybeSingle()
+  if (error) throw error
+  if (!share) return null
+
+  const { data: sessionRows, error: sessionsError } = await supabase
+    .from('sessions').select('*').in('id', share.session_ids).order('date', { ascending: true })
+  if (sessionsError) throw sessionsError
+
+  const sessions = await Promise.all((sessionRows || []).map(async row => {
+    const sess = dbToSession(row)
+    const { hands } = await getHandsBySession(sess.id, sess.players)
+    return { ...sess, hands }
+  }))
+
+  const pids = [...new Set(sessions.flatMap(s => s.players))]
+  const { data: playerRows, error: playersError } = pids.length
+    ? await supabase.from('players').select('id, first_name, last_name').in('id', pids)
+    : { data: [], error: null }
+  if (playersError) throw playersError
+
+  return {
+    nightDate: share.night_date,
+    sessions,
+    players: (playerRows || []).map(r => ({ id: r.id, firstName: r.first_name || '', lastName: r.last_name || '' })),
+  }
+}
+
 // ── Analytics (read-only) ─────────────────────────────────────────────────────
 
 async function selectAll(table) {

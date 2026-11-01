@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { settleDebts } from '../utils/scoring'
 import Avatar from './Avatar'
+import TextTable from './TextTable'
 
 const APP_URL = 'https://sheepshead-app.vercel.app/'
 
@@ -246,9 +247,13 @@ function EmailConfirmModal({ allRecipients, emailTargets, onSend, onClose, sendi
  * buildEmail (optional): (transfers) => ({ subject, html, text }) replaces the
  * single-session email — used by Combined Night. The email button shows when
  * either `session` or `buildEmail` is given.
+ *
+ * textNight (optional): { nightDate: 'YYYY-MM-DD', sessionIds } shows the
+ * "Text the table" button; updatePlayer saves phone/venmo added inline there.
  */
-export default function Settlement({ players, totals, getPlayer, getDisplayName, session, buildEmail, autoOpen, onAutoOpenHandled }) {
+export default function Settlement({ players, totals, getPlayer, getDisplayName, session, buildEmail, autoOpen, onAutoOpenHandled, textNight, updatePlayer }) {
   const [showModal, setShowModal] = useState(() => !!autoOpen)
+  const [showText,  setShowText]  = useState(false)
   const [sending,   setSending]   = useState(false)
   const [sent,      setSent]      = useState(false)
   const [sendError, setSendError] = useState(null)
@@ -436,6 +441,26 @@ export default function Settlement({ players, totals, getPlayer, getDisplayName,
             </>
           )}
         </div>
+      )}
+
+      {/* ── Text the table ── */}
+      {textNight && (
+        <button className="btn btn-ghost" onClick={() => setShowText(true)} style={{ width: '100%', fontSize: 13, gap: 8, marginTop: canEmail ? 0 : 6 }}>
+          💬 Text the table
+        </button>
+      )}
+      {showText && (
+        <TextTable
+          players={players}
+          totals={totals}
+          transfers={transfers}
+          getPlayer={getPlayer}
+          getDisplayName={getDisplayName}
+          updatePlayer={updatePlayer}
+          nightDate={textNight.nightDate}
+          sessionIds={textNight.sessionIds}
+          onClose={() => setShowText(false)}
+        />
       )}
 
       {/* ── Confirmation modal ── */}

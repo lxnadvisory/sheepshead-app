@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { buildPlayerEmail, dollars, shortDate } from '../utils/textTable'
 import { useNightShareLink } from './TextTable'
 import Avatar from './Avatar'
+import { playerNightStats, nightTeaser, personalStatsUrl } from '../utils/nightStats'
 
 const TEST_EMAIL = 'jaleckson@gmail.com'
 
@@ -32,7 +33,7 @@ async function postMessages(messages) {
  * who pays them, and the night's stats link. "Send test to me only" sends a
  * single sample to Jake.
  */
-export default function SummaryEmail({ players, totals, transfers, getPlayer, getDisplayName, nightDate, sessionIds, onClose }) {
+export default function SummaryEmail({ players, totals, transfers, getPlayer, getDisplayName, nightDate, sessionIds, sessions = [], onClose }) {
   const dn = getDisplayName ?? (pid => getPlayer(pid)?.firstName ?? pid)
   const { statsUrl, linkError, retry } = useNightShareLink(nightDate, sessionIds)
 
@@ -43,7 +44,11 @@ export default function SummaryEmail({ players, totals, transfers, getPlayer, ge
 
   const rows       = players.map(pid => ({ pid, player: getPlayer(pid), email: getPlayer(pid)?.email?.trim() || null }))
   const recipients = rows.filter(r => r.email)
-  const emailFor   = pid => buildPlayerEmail({ pid, net: totals[pid] ?? 0, transfers, nightDate, statsUrl, getPlayer, dn })
+  const emailFor   = pid => buildPlayerEmail({
+    pid, net: totals[pid] ?? 0, transfers, nightDate, getPlayer, dn,
+    statsUrl: personalStatsUrl(statsUrl, pid),
+    teaser:   nightTeaser(playerNightStats(sessions, pid), dn),
+  })
 
   // Never re-sends to anyone already marked sent
   const sendAll = async () => {

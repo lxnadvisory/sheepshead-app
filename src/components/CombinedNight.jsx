@@ -156,7 +156,7 @@ export default function CombinedNight({ getPlayer, getDisplayName, endSession, u
             getPlayer={getPlayer}
             getDisplayName={getDisplayName}
             autoOpen={justFinalized}
-            textNight={{ nightDate: nightKey(tables[0].date), sessionIds: tables.map(t => t.id) }}
+            textNight={{ nightDate: nightKey(tables[0].date), sessionIds: tables.map(t => t.id), sessions: included }}
             updatePlayer={updatePlayer}
           />
         )}

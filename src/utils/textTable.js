@@ -61,9 +61,9 @@ export function buildPlayerText({ pid, net, transfers, nightDate, statsUrl, getP
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-/** { subject, html, text } for one player. Same inputs as buildPlayerText. */
+/** { subject, html, text } for one player. Same inputs as buildPlayerText, plus an optional one-line teaser. */
 export function buildPlayerEmail(args) {
-  const { pid, net, transfers, nightDate, statsUrl, getPlayer, dn } = args
+  const { pid, net, transfers, nightDate, statsUrl, getPlayer, dn, teaser } = args
   const md     = shortDate(nightDate)
   const paying = transfers.filter(t => t.from === pid)
   const paidBy = transfers.filter(t => t.to === pid)
@@ -94,12 +94,14 @@ export function buildPlayerEmail(args) {
       <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:#6b7280;text-transform:uppercase;">The Shed · ${md}</div>
       <div style="margin-top:6px;font-size:22px;font-weight:800;color:${paying.length ? '#dc2626' : paidBy.length ? '#16a34a' : '#374151'};">${esc(result.charAt(0).toUpperCase() + result.slice(1))}</div>
       ${detail ? `<table style="margin-top:12px;border-collapse:collapse;">${detail}</table>` : ''}
+      ${teaser ? `<div style="margin-top:14px;font-size:14px;color:#374151;">${esc(teaser)}</div>` : ''}
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb;">
-        <a href="${esc(statsUrl)}" style="color:#4f46e5;font-size:14px;font-weight:600;text-decoration:none;">See the night's stats →</a>
+        <a href="${esc(statsUrl)}" style="color:#4f46e5;font-size:14px;font-weight:600;text-decoration:none;">See your night: picks, partners & stats →</a>
       </div>
     </div>
   </div>
 </body></html>`
 
-  return { subject, html, text: buildPlayerText(args) }
+  const text = buildPlayerText(args)
+  return { subject, html, text: teaser ? text.replace('\n\nStats: ', `\n\n${teaser}\n\nStats: `) : text }
 }

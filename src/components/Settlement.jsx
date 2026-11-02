@@ -6,7 +6,7 @@ import SummaryEmail from './SummaryEmail'
 
 // ── Main component ────────────────────────────────────────────────────────────
 /**
- * textNight (optional): { nightDate: 'YYYY-MM-DD', sessionIds } shows the
+ * textNight (optional): { nightDate: 'YYYY-MM-DD', sessionIds, sessions } shows the
  * "Email the table" and "Text the table" buttons; updatePlayer saves
  * phone/venmo added inline. autoOpen opens the email dialog on mount.
  */
@@ -120,6 +120,7 @@ export default function Settlement({ players, totals, getPlayer, getDisplayName,
           getDisplayName={getDisplayName}
           nightDate={textNight.nightDate}
           sessionIds={textNight.sessionIds}
+          sessions={textNight.sessions}
           onClose={closeEmail}
         />
       )}

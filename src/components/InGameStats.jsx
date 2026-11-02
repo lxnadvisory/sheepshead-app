@@ -132,7 +132,8 @@ function Fact({ label, value, color }) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export default function InGameStats({ session, getPlayer, getDisplayName }) {
+// heading/live let the public night page reuse this panel without the live dot
+export default function InGameStats({ session, getPlayer, getDisplayName, heading = 'Live Stats', live = true }) {
   const dn    = getDisplayName ?? ((pid) => getPlayer(pid)?.firstName ?? pid)
   const stats = useMemo(() => computeStats(session, getPlayer), [session, getPlayer])
 
@@ -147,9 +148,9 @@ export default function InGameStats({ session, getPlayer, getDisplayName }) {
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--success)', animation: 'livePulse 2s infinite' }} />
+        {live && <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--success)', animation: 'livePulse 2s infinite' }} />}
         <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>
-          Live Stats · {totalHands} hand{totalHands !== 1 ? 's' : ''}
+          {heading} · {totalHands} hand{totalHands !== 1 ? 's' : ''}
         </span>
       </div>
 

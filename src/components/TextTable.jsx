@@ -3,6 +3,7 @@ import { hasSupabase } from '../supabase'
 import * as db from '../db'
 import { buildPlayerText, smsUrl, smsPhone, venmoHandle, dollars, shortDate } from '../utils/textTable'
 import Avatar from './Avatar'
+import { personalStatsUrl } from '../utils/nightStats'
 
 // Which rows were already texted, per share link — survives the trip out to Messages
 const sentKey = token => `shed:texted:${token}`
@@ -121,7 +122,7 @@ export default function TextTable({ players, totals, transfers, getPlayer, getDi
             const phone    = smsPhone(p?.phone)
             const isPaid   = transfers.some(t => t.to === pid)
             const isSent   = sent.has(pid)
-            const message  = statsUrl && buildPlayerText({ pid, net, transfers, nightDate, statsUrl, getPlayer, dn })
+            const message  = statsUrl && buildPlayerText({ pid, net, transfers, nightDate, statsUrl: personalStatsUrl(statsUrl, pid), getPlayer, dn })
             return (
               <div key={pid} style={{
                 display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',

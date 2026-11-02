@@ -61,9 +61,9 @@ export function buildPlayerText({ pid, net, transfers, nightDate, statsUrl, getP
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-/** { subject, html, text } for one player. Same inputs as buildPlayerText, plus an optional one-line teaser. */
+/** { subject, html, text } for one player. Same inputs as buildPlayerText, plus an optional teaser line and allTimeUrl. */
 export function buildPlayerEmail(args) {
-  const { pid, net, transfers, nightDate, statsUrl, getPlayer, dn, teaser } = args
+  const { pid, net, transfers, nightDate, statsUrl, getPlayer, dn, teaser, allTimeUrl } = args
   const md     = shortDate(nightDate)
   const paying = transfers.filter(t => t.from === pid)
   const paidBy = transfers.filter(t => t.to === pid)
@@ -97,11 +97,13 @@ export function buildPlayerEmail(args) {
       ${teaser ? `<div style="margin-top:14px;font-size:14px;color:#374151;">${esc(teaser)}</div>` : ''}
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb;">
         <a href="${esc(statsUrl)}" style="color:#4f46e5;font-size:14px;font-weight:600;text-decoration:none;">See your night: picks, partners & stats →</a>
+        ${allTimeUrl ? `<div style="margin-top:10px;"><a href="${esc(allTimeUrl)}" style="color:#4f46e5;font-size:14px;font-weight:600;text-decoration:none;">Your all-time stats →</a></div>` : ''}
       </div>
     </div>
   </div>
 </body></html>`
 
-  const text = buildPlayerText(args)
+  let text = buildPlayerText(args)
+  if (allTimeUrl) text += `\nAll-time: ${allTimeUrl}`
   return { subject, html, text: teaser ? text.replace('\n\nStats: ', `\n\n${teaser}\n\nStats: `) : text }
 }

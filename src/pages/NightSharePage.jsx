@@ -6,7 +6,7 @@ import { settleDebts, getTierLabel } from '../utils/scoring'
 import { getDisplayName as computeDisplayName, getFullName } from '../utils/displayName'
 import { nightLabel } from '../lib/analytics'
 import { dollars } from '../utils/textTable'
-import { playerNightStats } from '../utils/nightStats'
+import { playerNightStats, allTimeStatsUrl } from '../utils/nightStats'
 import InGameStats from '../components/InGameStats'
 
 // Public, read-only page for one night, reached by /night/<token> without the
@@ -186,6 +186,10 @@ export default function NightSharePage({ token }) {
 
       <div style={sectionLabel}>Hand history</div>
       {tables.map((t, i) => <TableHands key={t.id} table={t} session={sessions[i]} dn={dn} />)}
+
+      <a href={allTimeStatsUrl(window.location.origin, myStats ? me : null)} className='btn btn-ghost' style={{ display: 'block', textAlign: 'center', marginTop: 20, textDecoration: 'none' }}>
+        {myStats ? `${dn(me)}'s all-time stats →` : 'All-time stats →'}
+      </a>
     </>
   )
 }

@@ -15,7 +15,8 @@ const profileFromHash = () => {
   return m ? decodeURIComponent(m[1]) : null
 }
 
-export default function AnalyticsPage({ players, sessions, dataWarnings = [] }) {
+// publicView: the no-PIN /stats page, which hides the data-check notes
+export default function AnalyticsPage({ players, sessions, dataWarnings = [], publicView = false }) {
   // ── Load raw rows (read-only) ──────────────────────────────────────────────
   // Re-fetch whenever the store's hands change (new hand, edit, remote update).
   const storeKey = useMemo(() => sessions.map(s =>
@@ -108,7 +109,7 @@ export default function AnalyticsPage({ players, sessions, dataWarnings = [] }) 
     return <div className="an-page"><div className="an-empty an-loading">Loading stats…</div></div>
   }
 
-  const notes = (
+  const notes = publicView ? null : (
     <DataNotes a={allTime} loadError={loadError} dataWarnings={dataWarnings} offline={!hasSupabase} />
   )
 

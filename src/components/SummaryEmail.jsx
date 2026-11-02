@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { buildPlayerEmail, dollars, shortDate } from '../utils/textTable'
 import { useNightShareLink } from './TextTable'
 import Avatar from './Avatar'
-import { playerNightStats, nightTeaser, personalStatsUrl } from '../utils/nightStats'
+import { playerNightStats, nightTeaser, personalStatsUrl, allTimeStatsUrl } from '../utils/nightStats'
 
 const TEST_EMAIL = 'jaleckson@gmail.com'
 
@@ -48,6 +48,7 @@ export default function SummaryEmail({ players, totals, transfers, getPlayer, ge
     pid, net: totals[pid] ?? 0, transfers, nightDate, getPlayer, dn,
     statsUrl: personalStatsUrl(statsUrl, pid),
     teaser:   nightTeaser(playerNightStats(sessions, pid), dn),
+    allTimeUrl: allTimeStatsUrl(window.location.origin, pid),
   })
 
   // Never re-sends to anyone already marked sent

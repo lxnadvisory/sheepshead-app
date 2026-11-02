@@ -66,3 +66,8 @@ export function nightTeaser(stats, dn) {
 export function personalStatsUrl(statsUrl, pid) {
   return `${statsUrl}?p=${encodeURIComponent(pid)}`
 }
+
+/** Public all-time stats (/stats, no PIN): the player's profile, or the dashboard. */
+export function allTimeStatsUrl(origin, pid) {
+  return pid ? `${origin}/stats#stats/p/${encodeURIComponent(pid)}` : `${origin}/stats`
+}

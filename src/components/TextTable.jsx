@@ -52,28 +52,19 @@ function InlineAdd({ label, placeholder, inputMode, onSave }) {
   )
 }
 
-/**
- * One row per player with their personal settlement text. "Text" opens the
- * phone's Messages app pre-filled for that player only; nothing is sent from here.
- */
-export default function TextTable({ players, totals, transfers, getPlayer, getDisplayName, updatePlayer, nightDate, sessionIds, onClose }) {
-  const dn = getDisplayName ?? (pid => getPlayer(pid)?.firstName ?? pid)
-
+/** The night's public stats link, created on first use. Shared with the email dialog. */
+export function useNightShareLink(nightDate, sessionIds) {
   const [token,     setToken]     = useState(null)
   const [linkError, setLinkError] = useState(null)
-  const [sent,      setSent]      = useState(() => new Set())
-  const [copied,    setCopied]    = useState(null)
 
   const idsKey = [...sessionIds].sort().join()
   const loadLink = useCallback(async () => {
     setLinkError(null)
     if (!hasSupabase) { setLinkError('The stats link needs the database, and this device is not connected to it.'); return }
     try {
-      const t = await db.getOrCreateNightShare(nightDate, sessionIds)
-      setToken(t)
-      setSent(loadSent(t))
+      setToken(await db.getOrCreateNightShare(nightDate, sessionIds))
     } catch (err) {
-      console.error('[TextTable] Could not create the stats link:', err)
+      console.error('[NightShare] Could not create the stats link:', err)
       setLinkError(`Couldn't create the stats link: ${err?.message || err}`)
     }
   }, [nightDate, idsKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -81,6 +72,21 @@ export default function TextTable({ players, totals, transfers, getPlayer, getDi
   useEffect(() => { loadLink() }, [loadLink])
 
   const statsUrl = token ? `${window.location.origin}/night/${token}` : null
+  return { token, statsUrl, linkError, retry: loadLink }
+}
+
+/**
+ * One row per player with their personal settlement text. "Text" opens the
+ * phone's Messages app pre-filled for that player only; nothing is sent from here.
+ */
+export default function TextTable({ players, totals, transfers, getPlayer, getDisplayName, updatePlayer, nightDate, sessionIds, onClose }) {
+  const dn = getDisplayName ?? (pid => getPlayer(pid)?.firstName ?? pid)
+
+  const { token, statsUrl, linkError, retry: loadLink } = useNightShareLink(nightDate, sessionIds)
+  const [sent,      setSent]      = useState(() => new Set())
+  const [copied,    setCopied]    = useState(null)
+
+  useEffect(() => { if (token) setSent(loadSent(token)) }, [token])
 
   const markSent = pid => setSent(prev => {
     const next = new Set(prev).add(pid)

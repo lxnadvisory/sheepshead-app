@@ -324,7 +324,6 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
             totals={totals}
             getPlayer={getPlayer}
             getDisplayName={getDisplayName}
-            session={session}
             textNight={{ nightDate: nightKey(session.date), sessionIds: [session.id] }}
             updatePlayer={updatePlayer}
           />

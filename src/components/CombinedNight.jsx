@@ -5,102 +5,8 @@ import { combineSessions, tableLabel } from '../utils/combined'
 import Settlement from './Settlement'
 import { nightKey } from '../lib/analytics'
 
-const APP_URL = 'https://sheepshead-app.vercel.app/'
-
 const money = n => (n >= 0 ? `+$${n.toFixed(2)}` : `-$${Math.abs(n).toFixed(2)}`)
 const pts   = n => `${n > 0 ? '+' : ''}${n}`
-
-// ── Combined email (one summary for the whole night) ─────────────────────────
-export function buildCombinedEmail({ tables, players, night, transfers, getPlayer, dn }) {
-  const dateStr = new Date(tables[0]?.date ?? Date.now()).toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-  })
-  const subject   = `Sheepshead Night — ${dateStr} (${tables.length} tables)`
-  const standings = [...players].sort((a, b) => (night[b] ?? 0) - (night[a] ?? 0))
-  const cell      = 'padding:6px 10px;font-size:13px;'
-  const head      = 'padding:8px 12px 6px;background:#18182a;border-bottom:1px solid #2a2a42;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#4a5568;'
-  const box       = 'background:#10101a;border:1px solid #2a2a42;border-radius:10px;margin-bottom:16px;overflow:hidden;'
-  const color     = n => (n > 0 ? '#22c55e' : n < 0 ? '#ef4444' : '#94a3b8')
-
-  const standingsRows = standings.map((pid, i) => {
-    const total = night[pid] ?? 0
-    return `<tr>
-      <td style="${cell}color:#94a3b8;">#${i + 1}</td>
-      <td style="${cell}font-weight:700;font-size:14px;">${dn(pid)}${i === 0 ? ' 🏆' : ''}</td>
-      <td style="${cell}font-weight:800;color:${color(total)};font-size:14px;">${pts(total)} pts</td>
-      <td style="${cell}color:#94a3b8;">${money(total)}</td>
-    </tr>`
-  }).join('')
-
-  const transferRows = transfers.length > 0
-    ? transfers.map(t => {
-        const toP   = getPlayer(t.to)
-        const venmo = toP?.venmo
-          ? `<br><a href="https://venmo.com/${toP.venmo}?txn=pay&amount=${Math.abs(t.amount).toFixed(2)}&note=Sheepshead" style="color:#6366f1;font-size:12px;">venmo.com/${toP.venmo}</a>`
-          : ''
-        return `<tr>
-          <td style="${cell}font-size:14px;"><span style="color:#ef4444;font-weight:700;">${dn(t.from)}</span>
-            <span style="color:#94a3b8;"> pays </span><span style="color:#22c55e;font-weight:700;">${dn(t.to)}</span></td>
-          <td style="${cell}font-weight:800;font-size:15px;">$${Math.abs(t.amount).toFixed(2)}${venmo}</td>
-        </tr>`
-      }).join('')
-    : `<tr><td colspan="2" style="${cell}color:#94a3b8;">Everyone came out even — no transfers needed!</td></tr>`
-
-  const breakdownHead = tables.map(t => `<th style="${cell}color:#94a3b8;text-align:right;font-weight:600;">${t.label}<br><span style="font-size:11px;">${t.handCount} hands</span></th>`).join('')
-  const breakdownRows = standings.map(pid => `<tr>
-      <td style="${cell}font-weight:700;">${dn(pid)}</td>
-      ${tables.map(t => pid in t.totals
-        ? `<td style="${cell}text-align:right;color:${color(t.totals[pid])};">${pts(t.totals[pid])}</td>`
-        : `<td style="${cell}text-align:right;color:#4a5568;">—</td>`).join('')}
-      <td style="${cell}text-align:right;font-weight:800;color:${color(night[pid] ?? 0)};">${pts(night[pid] ?? 0)}</td>
-    </tr>`).join('')
-
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#08080f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#f1f5f9;">
-  <div style="max-width:560px;margin:0 auto;padding:24px 16px;">
-    <div style="text-align:center;padding:20px 0 16px;">
-      <div style="font-size:28px;margin-bottom:6px;">🃏</div>
-      <h1 style="margin:0;font-size:22px;font-weight:800;color:#f1f5f9;">Game Night's in the Books!</h1>
-      <p style="margin:6px 0 0;font-size:13px;color:#94a3b8;">${dateStr} · The Shed · ${tables.length} tables combined</p>
-    </div>
-    <div style="${box}"><div style="${head}">Final Standings — whole night</div>
-      <table style="width:100%;border-collapse:collapse;">${standingsRows}</table></div>
-    <div style="${box}"><div style="${head}">Who Owes Whom</div>
-      <table style="width:100%;border-collapse:collapse;">${transferRows}</table></div>
-    <div style="${box}"><div style="${head}">Points by Table</div>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr><th style="${cell}"></th>${breakdownHead}<th style="${cell}color:#94a3b8;text-align:right;">Night</th></tr>
-        ${breakdownRows}
-      </table></div>
-    <div style="text-align:center;padding-bottom:8px;">
-      <p style="margin:0 0 12px;font-size:14px;color:#94a3b8;">Good game all — see you next time! 🍺</p>
-      <a href="${APP_URL}" style="display:inline-block;padding:9px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">Open The Shed App</a>
-    </div>
-  </div>
-</body>
-</html>`
-
-  let text = `Game night's in the books! Recap from ${dateStr} at The Shed — ${tables.length} tables combined. 🃏\n\n`
-  text += `FINAL STANDINGS (whole night)\n`
-  standings.forEach((pid, i) => {
-    text += `  ${i + 1}. ${dn(pid).padEnd(10)} ${pts(night[pid] ?? 0)} pts  (${money(night[pid] ?? 0)})${i === 0 ? '  🏆' : ''}\n`
-  })
-  text += transfers.length > 0 ? `\nWHO OWES WHOM\n` : `\nEveryone came out even — no transfers needed!\n`
-  transfers.forEach(t => {
-    const toP = getPlayer(t.to)
-    text += `  • ${dn(t.from)} pays ${dn(t.to)} $${Math.abs(t.amount).toFixed(2)}${toP?.venmo ? `  → venmo.com/${toP.venmo}` : ''}\n`
-  })
-  text += `\nPOINTS BY TABLE\n`
-  tables.forEach(t => {
-    text += `  ${t.label} (${t.handCount} hands): ` +
-      Object.entries(t.totals).map(([pid, p]) => `${dn(pid)} ${pts(p)}`).join(', ') + '\n'
-  })
-  text += `\nGood game all — see you next time! 🍺\n\n${APP_URL}`
-
-  return { subject, html, text }
-}
 
 // ── Screen ───────────────────────────────────────────────────────────────────
 const sectionLabel = { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }
@@ -187,7 +93,7 @@ export default function CombinedNight({ getPlayer, getDisplayName, endSession, u
       setFinalizeErr(
         `${err?.message || err}` +
         (done.length ? ` Already finalized: ${done.join(', ')}.` : ' Nothing was finalized.') +
-        ' No email was sent.')
+        ' Nothing was sent to players.')
     } finally {
       setFinalizing(false)
     }
@@ -249,7 +155,6 @@ export default function CombinedNight({ getPlayer, getDisplayName, endSession, u
             totals={night}
             getPlayer={getPlayer}
             getDisplayName={getDisplayName}
-            buildEmail={(transfers) => buildCombinedEmail({ tables, players: ranked, night, transfers, getPlayer, dn })}
             autoOpen={justFinalized}
             textNight={{ nightDate: nightKey(tables[0].date), sessionIds: tables.map(t => t.id) }}
             updatePlayer={updatePlayer}
@@ -269,7 +174,7 @@ export default function CombinedNight({ getPlayer, getDisplayName, endSession, u
                   {liveIncluded.map(t => <li key={t.id}>{t.label} — {t.handCount} hands</li>)}
                 </ul>
                 Any open game screens for these tables close. You can reopen a table later from Past Sessions.
-                Next you'll be asked to send <strong>one</strong> combined summary email — don't also send per-table emails.
+                Next you can email or text each player their result for the whole night — don't also send them from each table.
                 {finalizeErr && (
                   <div style={{ marginTop: 10, color: 'var(--danger)', fontSize: 13 }}>{finalizeErr}</div>
                 )}

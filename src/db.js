@@ -8,6 +8,8 @@
  * players:  firstName/lastName  ←→  first_name/last_name
  * sessions: players[]           ←→  seat_order TEXT[]
  *           active bool         ←→  status 'active'|'ended'
+ *           dealerPid           ←→  dealer_pid    (NULL on sessions from before it was stored)
+ *           leftPlayers[]       ←→  left_players TEXT[]
  * hands:    picker/partner      ←→  picker_name/partner_name  (player IDs stored as text)
  *           isLoner             ←→  is_alone
  *           pickerPoints        ←→  points
@@ -18,6 +20,9 @@
  *           recrackers[]        ←→  recracked_by (comma-joined)
  *           scores {pid:delta}  ←→  seat_deltas REAL[]  (ordered by seat_order)
  *           seat roles          ←→  seat_roles TEXT[]
+ *           sitOutPids[]        ←→  sit_out TEXT[] (NULL on old hands: derived from seat_roles / dealer_name)
+ *           doublerCount        ←→  doubler_count  (NULL on old hands)
+ *           lastRound           ←→  last_round
  *
  * F-Ups (handType 'fup' ←→ hand_type 'FUP') reuse the hands table. The NOT NULL
  * columns are filled with placeholders: picker_name = offender id, points = 0,
@@ -91,6 +96,8 @@ function sessionToDb(session) {
     seat_order:         session.players         || [],
     status:             session.active ? 'active' : 'ended',
     smith_rule_enabled: false,
+    dealer_pid:         session.dealerPid ?? session.players?.[session.dealerIndex ?? 0] ?? null,
+    left_players:       session.leftPlayers ?? [],
   }
 }
 
@@ -109,6 +116,8 @@ function dbToSession(row, hands = []) {
     active:             row.status === 'active',
     hands,
     dealerIndex:        numPlayers > 0 ? hands.length % numPlayers : 0,
+    dealerPid:          row.dealer_pid ?? null,
+    leftPlayers:        row.left_players ?? [],
     lastRoundRemaining: 0,
   }
 }
@@ -122,6 +131,8 @@ export async function updateSession(id, data) {
   const patch = {}
   if ('active'  in data) patch.status     = data.active ? 'active' : 'ended'
   if ('players' in data) patch.seat_order = data.players
+  if ('dealerPid'   in data) patch.dealer_pid   = data.dealerPid ?? null
+  if ('leftPlayers' in data) patch.left_players = data.leftPlayers ?? []
   if (Object.keys(patch).length === 0) return
   const { error } = await supabase.from('sessions').update(patch).eq('id', id)
   if (error) throw error
@@ -189,6 +200,13 @@ export function dbRowToHand(row, seatOrder) {
         unseatedRoles:  Array.isArray(row.seat_roles) ? row.seat_roles.slice(seatOrder.length) : [],
       }
     : {}
+  // Who sat out: stored list, else seats marked 'out', else the dealer column
+  const outSeats = Array.isArray(row.seat_roles) && Array.isArray(seatOrder)
+    ? seatOrder.filter((_, i) => row.seat_roles[i] === 'out') : []
+  const sitOutPids = Array.isArray(row.sit_out) ? row.sit_out
+    : outSeats.length ? outSeats
+    : row.dealer_name ? [row.dealer_name] : []
+
   const isFup = String(row.hand_type || '').toLowerCase() === 'fup'
   if (isFup) {
     return {
@@ -209,8 +227,9 @@ export function dbRowToHand(row, seatOrder) {
       crackers:     [],
       recrackers:   [],
       blitzes:      {},
-      doublerCount: 0,
-      lastRound:    false,
+      sitOutPids,
+      doublerCount: row.doubler_count ?? 0,
+      lastRound:    row.last_round    ?? false,
       ...extra,
     }
   }
@@ -232,10 +251,11 @@ export function dbRowToHand(row, seatOrder) {
     handType:   row.hand_type   || null,
     offenderId: row.offender_id || null,
     note:       row.note        || null,
-    // doublerCount and lastRound are not stored in the DB schema.
-    // lastRound is cosmetic; doublerCount is not needed to display stored scores.
-    doublerCount: 0,
-    lastRound:    false,
+    sitOutPids,
+    // NULL on hands saved before these columns existed
+    doublerCount:       row.doubler_count ?? 0,
+    doublerCountStored: row.doubler_count != null,
+    lastRound:          row.last_round ?? false,
     ...extra,
   }
 }
@@ -248,6 +268,12 @@ function withUnseated(hand, seatDeltas, seatRoles) {
     seat_deltas: [...seatDeltas, ...extraDeltas],
     seat_roles:  [...seatRoles, ...extraDeltas.map((_, i) => extraRoles[i] ?? 'opp')],
   }
+}
+
+/** Everyone who sat out the hand; always includes the dealer when they sat out. */
+function sitOutsOf(hand) {
+  const list = hand.sitOutPids ?? []
+  return hand.dealerPid && !list.includes(hand.dealerPid) ? [hand.dealerPid, ...list] : list
 }
 
 function fupToDb(hand, sessionId, seatOrder) {
@@ -264,11 +290,14 @@ function fupToDb(hand, sessionId, seatOrder) {
     ...withUnseated(hand,
       seatOrder.map(pid => hand.scores?.[pid] ?? 0),
       seatOrder.map(pid => {
-        if (pid === hand.offenderId) return 'picker'
-        if (pid === hand.dealerPid)  return 'out'
+        if (pid === hand.offenderId)       return 'picker'
+        if (sitOutsOf(hand).includes(pid)) return 'out'
         return 'opp'
       })),
     dealer_name:  hand.dealerPid || null,
+    sit_out:      sitOutsOf(hand),
+    doubler_count: hand.doublerCount ?? 0,
+    last_round:   hand.lastRound || false,
     shed_clean:   false,
     no_tricks:    false,
     smith_rule:   false,
@@ -286,7 +315,7 @@ function handToDb(hand, sessionId, seatOrder) {
 
   const seatDeltas = seatOrder.map(pid => hand.scores?.[pid] ?? 0)
   const seatRoles  = seatOrder.map(pid => {
-    if (pid === hand.dealerPid)              return 'out'
+    if (sitOutsOf(hand).includes(pid))       return 'out'
     if (pid === hand.picker)                 return 'picker'
     if (!hand.isLoner && pid === hand.partner) return 'partner'
     return 'opp'
@@ -304,6 +333,9 @@ function handToDb(hand, sessionId, seatOrder) {
     mult:         getMultiplier(hand),
     ...withUnseated(hand, seatDeltas, seatRoles),
     dealer_name:  hand.dealerPid || null,
+    sit_out:      sitOutsOf(hand),
+    doubler_count: hand.doublerCount ?? 0,
+    last_round:   hand.lastRound || false,
     shed_clean:   hand.shedClean      || false,
     no_tricks:    hand.pickerNoTricks || false,
     smith_rule:   hand.smith          || false,

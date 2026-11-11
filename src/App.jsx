@@ -248,6 +248,7 @@ export default function App() {
           insertSessionPlayer={store.insertSessionPlayer}
           markPlayerLeft={store.markPlayerLeft}
           reorderSessionPlayers={store.reorderSessionPlayers}
+          setDealer={store.setDealer}
           getPlayer={store.getPlayer}
           getDisplayName={store.getDisplayName}
           getActiveSession={store.getActiveSession}

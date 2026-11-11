@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Avatar from './Avatar'
+import DealerButton from './DealerButton'
 import SaveErrorBox from './SaveErrorBox'
 
 export default function FupModal({
@@ -141,7 +142,7 @@ export default function FupModal({
                   transition: 'left 0.2s',
                 }} />
               </div>
-              <span style={{ fontSize: 13 }}>Advance dealer 🍆</span>
+              <span style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Advance dealer <DealerButton size={15} /></span>
             </label>
           </div>
 

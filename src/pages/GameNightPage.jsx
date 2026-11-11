@@ -7,6 +7,7 @@ import Settlement         from '../components/Settlement'
 import CombinedNight      from '../components/CombinedNight'
 import InGameStats, { computeStreaks, streakStyle } from '../components/InGameStats'
 import Avatar from '../components/Avatar'
+import DealerButton from '../components/DealerButton'
 import { exportData } from '../utils/backup'
 import { nightKey } from '../lib/analytics'
 
@@ -134,7 +135,7 @@ function pickToast(hand) {
   return null
 }
 
-function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, onShowTables, onOpenCombined, updatePlayer }) {
+function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisplayName, addHand, updateHand, deleteHand, insertHandAt, endSession, activateLastRound, addSessionPlayer, insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, setDealer, onShowTables, onOpenCombined, updatePlayer }) {
   const [showModal,          setShowModal]          = useState(false)
   const [showFup,            setShowFup]            = useState(false)
   const [showSettle,         setShowSettle]         = useState(false)
@@ -146,6 +147,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
   const [toast,              setToast]              = useState(null)
   const [editingHand,        setEditingHand]        = useState(null)
   const [editingFupHand,     setEditingFupHand]     = useState(null)
+  const [showDealerPick,     setShowDealerPick]     = useState(false)
   const isWide = useIsWide()
 
   const sessionPlayers  = session.players
@@ -201,6 +203,10 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 800 }}>The Shed</h1>
           <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 1 }}>{dateStr} · {hands.length} hand{hands.length !== 1 ? 's' : ''}</div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowDealerPick(true)} title="Change who deals"
+            style={{ marginTop: 6, padding: '3px 10px', fontSize: 12, gap: 6, display: 'inline-flex', alignItems: 'center' }}>
+            <DealerButton size={16} /> Dealer: {getDisplayName(currentDealer)} ▾
+          </button>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {!isWide && <button className="btn btn-ghost btn-sm" onClick={() => setShowStats(true)}>◈ Stats</button>}
@@ -277,11 +283,10 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <Avatar player={p} size={av} />
                     {isDlr && (
-                      <span style={{
-                        position: 'absolute', bottom: -4, left: -8,
-                        fontSize: isWide ? 24 : 18, lineHeight: 1,
-                        filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))',
-                      }}>🍆</span>
+                      <button type="button" onClick={() => setShowDealerPick(true)} title="Change dealer"
+                        style={{ position: 'absolute', bottom: -4, left: -8, padding: 0, border: 0, background: 'none', cursor: 'pointer', lineHeight: 0 }}>
+                        <DealerButton size={isWide ? 28 : 22} />
+                      </button>
                     )}
                     {ss && (
                       <span style={{
@@ -491,6 +496,29 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         />
       )}
 
+      {/* Change dealer */}
+      {showDealerPick && (
+        <div className="modal-overlay" onClick={() => setShowDealerPick(false)}>
+          <div className="modal animate-slide-up" style={{ maxWidth: 360 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 style={{ fontSize: 16, fontWeight: 700 }}>Who deals next?</h2>
+              <button className="btn btn-ghost btn-icon" onClick={() => setShowDealerPick(false)} style={{ fontSize: 18, lineHeight: 1 }}>✕</button>
+            </div>
+            <div className="modal-body" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {activeSeatOrder.map(pid => (
+                <button key={pid} className={`toggle-btn ${pid === currentDealer ? 'active-warning' : ''}`}
+                  onClick={() => setDealer(session.id, pid).then(() => setShowDealerPick(false), () => {})}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-start' }}>
+                  <Avatar player={getPlayer(pid)} size={22} />
+                  <span style={{ flex: 1, textAlign: 'left' }}>{getDisplayName(pid)}</span>
+                  {pid === currentDealer && <DealerButton size={18} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Manage Players modal */}
       {showManage && (
         <ManagePlayersModal
@@ -622,7 +650,7 @@ export default function GameNightPage({
   startSession, endSession, deleteSession,
   addHand, updateHand, deleteHand, insertHandAt,
   activateLastRound, addSessionPlayer,
-  insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,
+  insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, setDealer,
   getPlayer, getDisplayName, getActiveSession, getSessionTotals,
   reopenSession, getLiveSessions, openTable, showTableList, updatePlayer,
 }) {
@@ -666,6 +694,7 @@ export default function GameNightPage({
         insertSessionPlayer={insertSessionPlayer}
         markPlayerLeft={markPlayerLeft}
         reorderSessionPlayers={reorderSessionPlayers}
+        setDealer={setDealer}
         onShowTables={showTableList}
         onOpenCombined={() => setShowCombined(true)}
         updatePlayer={updatePlayer}

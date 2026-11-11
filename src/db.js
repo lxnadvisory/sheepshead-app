@@ -103,8 +103,9 @@ function sessionToDb(session) {
 
 /**
  * Convert a DB sessions row back to the app's session shape.
- * dealerIndex is reconstructed from hand count; lastRoundRemaining
- * is ephemeral and not stored — defaults to 0 on remote load.
+ * dealerIndex here is only the old hand-count guess; the store replaces it
+ * from dealerPid (utils/dealer.js deriveDealerIndex) once hands are loaded.
+ * lastRoundRemaining is ephemeral and not stored — defaults to 0 on remote load.
  */
 function dbToSession(row, hands = []) {
   const seatOrder  = row.seat_order || []

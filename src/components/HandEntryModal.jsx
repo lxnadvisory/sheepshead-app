@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { calculateHandScores, getTierLabel, getMultiplier, verifyConservation } from '../utils/scoring'
 import { parseVoiceCommand } from '../utils/voiceParser'
 import Avatar from './Avatar'
+import DealerButton from './DealerButton'
 import SaveErrorBox from './SaveErrorBox'
 
 const DOUBLER_STEPS = [1, 2, 4, 8, 16]
@@ -329,7 +330,7 @@ export default function HandEntryModal({
               {isManualAdd ? 'Add Past Hand'
                 : isEditing ? `Editing Hand #${handNumber}`
                 : handNumber
-                  ? `Log Hand · Hand #${handNumber}${effectiveDealerPid ? ` · 🍆 ${getDisplayName(effectiveDealerPid)}` : ''}`
+                  ? <>Log Hand · Hand #{handNumber}{effectiveDealerPid && <> · <DealerButton size={16} style={{ verticalAlign: '-2px' }} /> {getDisplayName(effectiveDealerPid)}</>}</>
                   : 'Log Hand'}
             </h2>
           </div>
@@ -351,7 +352,7 @@ export default function HandEntryModal({
               const isDlr = pid === currentDealer
               return (
                 <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-                  {isDlr && <span style={{ fontSize: 11, lineHeight: 1 }}>🍆</span>}
+                  {isDlr && <DealerButton size={13} />}
                   <Avatar player={p} size={16} />
                   <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>
                     {getDisplayName(pid)}

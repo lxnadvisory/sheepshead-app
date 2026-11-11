@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { getDisplayName as computeDisplayName } from '../utils/displayName'
 import { supabase, hasSupabase } from '../supabase'
 import * as db from '../db'
+import { nextActiveDealerIndex, ensureActiveDealer, deriveDealerIndex } from '../utils/dealer'
 
 // ── Default data ──────────────────────────────────────────────────────────────
 const DEFAULT_PLAYERS = [
@@ -62,18 +63,6 @@ function migrateSessions(sessions) {
     leftPlayers: [],
     ...s,
   }))
-}
-
-// ── Dealer rotation helpers ───────────────────────────────────────────────────
-// Returns the index of the next active (non-left) player after fromIdx.
-function nextActiveDealerIndex(players, leftPlayers, fromIdx) {
-  const n = players.length
-  if (n === 0) return 0
-  for (let i = 1; i <= n; i++) {
-    const next = (fromIdx + i) % n
-    if (!leftPlayers.includes(players[next])) return next
-  }
-  return (fromIdx + 1) % n
 }
 
 const activeCount = sess => sess.players.filter(p => !(sess.leftPlayers ?? []).includes(p)).length
@@ -226,6 +215,21 @@ export function useStore() {
 
   const clearWriteError = useCallback(() => setWriteError(null), [])
 
+  /**
+   * Save the dealer and left players so a reload or another device sees them.
+   * Called after the local change; a failure shows the red banner but doesn't
+   * undo the local change (the next successful sync rewrites both).
+   */
+  const syncDealer = useCallback(async (sessionId, players, dealerIndex, leftPlayers) => {
+    if (!hasSupabase) return
+    try {
+      await db.updateSession(sessionId, { dealerPid: players[dealerIndex] ?? null, leftPlayers })
+    } catch (err) {
+      console.error('[Supabase] Saving dealer / left players failed:', err)
+      setWriteError(`Dealer / left players didn't save — other devices and a reload may show the wrong dealer. ${err?.message || err}`)
+    }
+  }, [])
+
   // ── Initial Supabase load ────────────────────────────────────────────────
   useEffect(() => {
     if (!hasSupabase) return
@@ -272,7 +276,17 @@ export function useStore() {
               return { ...sess, ...(localSess ?? {}), id: sess.id, players: sess.players, active: sess.active, hands: localHands, stale: true }
             }
 
-            if (!localSess) return { ...sess, hands, fromDb: true }
+            // Dealer and left players come from the DB. Sessions saved before
+            // dealer_pid existed keep the old behaviour below.
+            const stored = sess.dealerPid
+              ? { leftPlayers: sess.leftPlayers, dealerIndex: deriveDealerIndex(sess.players, sess.leftPlayers, sess.dealerPid, hands.length) }
+              : null
+
+            if (!localSess) {
+              const leftPlayers = sess.leftPlayers ?? []
+              return { ...sess, hands, fromDb: true,
+                ...(stored ?? { leftPlayers, dealerIndex: deriveDealerIndex(sess.players, leftPlayers, null, hands.length) }) }
+            }
 
             // Hands this device has that the DB doesn't — don't hide that silently
             const dbIds   = new Set(hands.map(h => h.id))
@@ -284,18 +298,20 @@ export function useStore() {
               })
             }
 
-            // dealerIndex / lastRoundRemaining / leftPlayers aren't stored in the DB.
-            // Keep this device's values when it has seen exactly the same hands.
-            const sameHands = missing.length === 0 && (localSess.hands?.length ?? 0) === hands.length
+            // lastRoundRemaining isn't stored: keep this device's value when it
+            // has seen exactly the same hands. Old sessions (no dealer_pid) also
+            // keep this device's dealer / left players, as before.
+            const sameHands   = missing.length === 0 && (localSess.hands?.length ?? 0) === hands.length
+            const leftPlayers = stored?.leftPlayers ?? localSess.leftPlayers ?? sess.leftPlayers ?? []
+            const dealerIndex = stored?.dealerIndex ?? ensureActiveDealer(sess.players, leftPlayers,
+              sameHands ? (localSess.dealerIndex ?? 0) : deriveDealerIndex(sess.players, [], null, hands.length))
             return {
               ...sess,
               hands,
               fromDb: true,
-              leftPlayers:        localSess.leftPlayers ?? [],
-              ...(sameHands ? {
-                dealerIndex:        localSess.dealerIndex ?? sess.dealerIndex,
-                lastRoundRemaining: localSess.lastRoundRemaining ?? 0,
-              } : {}),
+              leftPlayers,
+              dealerIndex,
+              ...(sameHands ? { lastRoundRemaining: localSess.lastRoundRemaining ?? 0 } : {}),
             }
           })
         )
@@ -408,13 +424,10 @@ export function useStore() {
             const hand     = db.dbRowToHand(row, sess.players)
             const newHands = [...sess.hands, hand]
               .sort((a, b) => a.handNumber - b.handNumber)
-            const numPlayers    = sess.players.length
-            const newDealerIdx  = numPlayers > 0 ? newHands.length % numPlayers : 0
-
+            // The dealer moves with the sessions UPDATE (dealer_pid) the scoring
+            // device writes next — never guessed from the hand count here.
             const updated = prev.sessions.map(s =>
-              s.id === row.session_id
-                ? { ...s, hands: newHands, dealerIndex: newDealerIdx }
-                : s
+              s.id === row.session_id ? { ...s, hands: newHands } : s
             )
             const next = { ...prev, sessions: updated }
             stateRef.current = next
@@ -447,16 +460,23 @@ export function useStore() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'sessions' },
         payload => {
-          // Only the live/ended flag is mirrored — e.g. a combined finalize run on
-          // the other table's computer closes this table here too. Seat order is
+          // Mirrors live/ended (a combined finalize on the other table's computer
+          // closes this table too), the dealer and who has left. Seat order is
           // left alone so an in-progress local change can't be clobbered.
           const row = payload.new
           if (!row?.id || !row.status) return
           setState(prev => {
             const sess = prev.sessions.find(s => s.id === row.id)
-            const active = row.status === 'active'
-            if (!sess || sess.active === active) return prev
-            const next = { ...prev, sessions: prev.sessions.map(s => s.id === row.id ? { ...s, active } : s) }
+            if (!sess) return prev
+            const active      = row.status === 'active'
+            const leftPlayers = Array.isArray(row.left_players) ? row.left_players : (sess.leftPlayers ?? [])
+            const dealerIndex = row.dealer_pid && sess.players.includes(row.dealer_pid)
+              ? ensureActiveDealer(sess.players, leftPlayers, sess.players.indexOf(row.dealer_pid))
+              : sess.dealerIndex
+            const same = sess.active === active && sess.dealerIndex === dealerIndex &&
+              (sess.leftPlayers ?? []).join() === leftPlayers.join()
+            if (same) return prev
+            const next = { ...prev, sessions: prev.sessions.map(s => s.id === row.id ? { ...s, active, leftPlayers, dealerIndex } : s) }
             stateRef.current = next
             saveSessions(next.sessions)
             return next
@@ -562,13 +582,14 @@ export function useStore() {
     const is6Player       = activeCount === 6
 
     const handNumber  = sess.hands.length + 1
-    const rawDealerPid = sess.players[sess.dealerIndex] ?? null
+    const dealerIndex = ensureActiveDealer(sess.players, leftPlayers, sess.dealerIndex)
+    const rawDealerPid = sess.players[dealerIndex] ?? null
     const dealerPid   = is6Player ? rawDealerPid : null
     const lastRound   = (sess.lastRoundRemaining ?? 0) > 0
     const skipAdvance = hand.skipDealerAdvance === true
     const nextDealer  = skipAdvance
-      ? sess.dealerIndex
-      : nextActiveDealerIndex(sess.players, leftPlayers, sess.dealerIndex)
+      ? dealerIndex
+      : nextActiveDealerIndex(sess.players, leftPlayers, dealerIndex)
     const nextLR      = lastRound ? Math.max(0, (sess.lastRoundRemaining ?? 0) - 1) : 0
 
     // Strip the control flag before storing
@@ -598,7 +619,8 @@ export function useStore() {
         }
       }),
     }))
-  }, [update, persist])
+    await syncDealer(sessionId, sess.players, nextDealer, leftPlayers)
+  }, [update, persist, syncDealer])
 
   const updateHand = useCallback(async (sessionId, handId, handData) => {
     const sess        = stateRef.current.sessions.find(s => s.id === sessionId)
@@ -667,19 +689,19 @@ export function useStore() {
   /**
    * A player who left this table and came back: they keep their seat and every
    * hand they already played; they just rejoin hand entry. Nothing in the DB changes
-   * (leftPlayers is device-local). Returns true if handled.
+   * (leftPlayers is saved on the session). Returns true if handled.
    */
   const rejoinIfLeft = useCallback((sess, playerId) => {
     if (!(sess.leftPlayers ?? []).includes(playerId)) return false
     if (activeCount(sess) >= 6) return true
+    const leftPlayers = (sess.leftPlayers ?? []).filter(p => p !== playerId)
     update(s => ({
       ...s,
-      sessions: s.sessions.map(session => session.id !== sess.id ? session : {
-        ...session, leftPlayers: (session.leftPlayers ?? []).filter(p => p !== playerId),
-      }),
+      sessions: s.sessions.map(session => session.id !== sess.id ? session : { ...session, leftPlayers }),
     }))
+    syncDealer(sess.id, sess.players, sess.dealerIndex, leftPlayers)
     return true
-  }, [update])
+  }, [update, syncDealer])
 
   /** Append a player from the roster to an active session (up to 6 active). */
   const addSessionPlayer = useCallback(async (sessionId, playerId) => {
@@ -689,7 +711,9 @@ export function useStore() {
     // Appending never touches stored hands: earlier hands have fewer scores than
     // seats, which loads as 0 for the new player.
     const newPlayers = [...sess.players, playerId]
-    await persist('Add player', () => db.updateSession(sessionId, { players: newPlayers }))
+    await persist('Add player', () => db.updateSession(sessionId, {
+      players: newPlayers, dealerPid: sess.players[sess.dealerIndex] ?? null, leftPlayers: sess.leftPlayers ?? [],
+    }))
     update(s => ({
       ...s,
       sessions: s.sessions.map(session =>
@@ -723,7 +747,8 @@ export function useStore() {
         return { ...session, players: newPlayers, dealerIndex: newDealerIndex }
       }),
     }))
-  }, [update, persist, rejoinIfLeft, addSessionPlayer])
+    await syncDealer(sessionId, newPlayers, newDealerIndex, sess.leftPlayers ?? [])
+  }, [update, persist, rejoinIfLeft, addSessionPlayer, syncDealer])
 
   /** Mark a player as having left the session. Their column/history is preserved. */
   const markPlayerLeft = useCallback((sessionId, playerId) => {
@@ -745,8 +770,8 @@ export function useStore() {
         return { ...session, leftPlayers, dealerIndex }
       }),
     }))
-    // leftPlayers is stored in localStorage only; no matching column in current Supabase schema
-  }, [update])
+    syncDealer(sessionId, sess.players, dealerIndex, leftPlayers)
+  }, [update, syncDealer])
 
   /** Insert a hand at a specific position in the hand history. Renumbers subsequent hands. */
   const insertHandAt = useCallback(async (sessionId, handCore, afterHandNumber) => {
@@ -783,7 +808,7 @@ export function useStore() {
     if (!sess) return
 
     const currentDealerPid = sess.players[sess.dealerIndex]
-    const newDealerIndex   = newOrder.indexOf(currentDealerPid)
+    const newDealerIndex   = Math.max(0, newOrder.indexOf(currentDealerPid))
 
     await persist('Reorder players', () => writeSeatOrder(sessionId, sess.hands, sess.players, newOrder))
     update(s => ({
@@ -793,9 +818,23 @@ export function useStore() {
         return {
           ...session,
           players:     newOrder,
-          dealerIndex: newDealerIndex >= 0 ? newDealerIndex : 0,
+          dealerIndex: newDealerIndex,
         }
       }),
+    }))
+    await syncDealer(sessionId, newOrder, newDealerIndex, sess.leftPlayers ?? [])
+  }, [update, persist, syncDealer])
+
+  /** Change who deals next (active players only). */
+  const setDealer = useCallback(async (sessionId, playerId) => {
+    const sess = stateRef.current.sessions.find(s => s.id === sessionId)
+    const leftPlayers = sess?.leftPlayers ?? []
+    const dealerIndex = sess ? sess.players.indexOf(playerId) : -1
+    if (dealerIndex < 0 || leftPlayers.includes(playerId)) return
+    await persist('Change dealer', () => db.updateSession(sessionId, { dealerPid: playerId, leftPlayers }))
+    update(s => ({
+      ...s,
+      sessions: s.sessions.map(session => session.id === sessionId ? { ...session, dealerIndex } : session),
     }))
   }, [update, persist])
 
@@ -931,7 +970,7 @@ export function useStore() {
     startSession, endSession, deleteSession, reopenSession,
     addHand, updateHand, deleteHand, insertHandAt,
     activateLastRound, addSessionPlayer,
-    insertSessionPlayer, markPlayerLeft, reorderSessionPlayers,
+    insertSessionPlayer, markPlayerLeft, reorderSessionPlayers, setDealer,
     getPlayer, getDisplayName, getSession, getActiveSession,
     getSessionTotals, getAnalytics,
   }

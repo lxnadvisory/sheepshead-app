@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
 import Avatar from './Avatar'
+import DealerButton from './DealerButton'
 import HandIcons from './HandIcons'
 
 function fmt(n) {
@@ -198,11 +199,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
                     <div style={{ position: 'relative' }}>
                       <Avatar player={p} size={48} />
                       {isDealer && !isLeft && (
-                        <span style={{
-                          position: 'absolute', bottom: -4, right: -6,
-                          fontSize: 16, lineHeight: 1,
-                          filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))',
-                        }}>🍆</span>
+                        <DealerButton size={18} style={{ position: 'absolute', bottom: -4, right: -6 }} />
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>

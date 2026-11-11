@@ -1,6 +1,10 @@
 import { useMemo } from 'react'
 import Avatar from './Avatar'
 import { sitOutsOf } from '../utils/hands'
+import { pairMatrix, pairExtremes, moneyByRole, crackScorecard, LONER } from '../utils/nightStats'
+
+const usd  = n => { const r = Math.round(n * 100) / 100; return r > 0 ? `+$${r}` : r < 0 ? `-$${Math.abs(r)}` : '$0' }
+const tone = n => (n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text-muted)')
 
 // ── Streak helpers ────────────────────────────────────────────────────────────
 // First icon appears only after this many consecutive wins/losses.
@@ -74,6 +78,7 @@ function computeStats(session, getPlayer) {
     }
 
     players.forEach(pid => {
+      if (sitOutsOf(hand).includes(pid)) return   // sat out: not a hand they played
       const delta = scores?.[pid] ?? 0
       const s = pStats[pid]
       s.handsPlayed++
@@ -99,7 +104,11 @@ function computeStats(session, getPlayer) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 3)
 
-  return { streaks, pStats, players, biggestHand, comboList, blackBlitzCount, redBlitzCount, doublerCount, crackCount, crackPickerLost, totalHands: hands.length }
+  const matrix = pairMatrix(hands)
+  return {
+    streaks, pStats, players, biggestHand, comboList, blackBlitzCount, redBlitzCount, doublerCount, crackCount, crackPickerLost, totalHands: hands.length,
+    matrix, extremes: pairExtremes(matrix), roles: moneyByRole(hands, players), cracks: crackScorecard(hands),
+  }
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -142,7 +151,14 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
     return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Stats appear after the first hand.</div>
   }
 
-  const { streaks, pStats, players, biggestHand, comboList, crackCount, crackPickerLost, blackBlitzCount, redBlitzCount, doublerCount, totalHands } = stats
+  const { streaks, pStats, players, biggestHand, comboList, crackCount, crackPickerLost, blackBlitzCount, redBlitzCount, doublerCount, totalHands, matrix, extremes, roles, cracks } = stats
+  // The sidebar on a TV has room for the grid; a phone gets the same records as a list
+  const asGrid = typeof window !== 'undefined' && window.innerWidth >= 1080
+  const isBest  = (pk, pt) => extremes.best  && extremes.best.picker  === pk && extremes.best.partner  === pt
+  const isWorst = (pk, pt) => extremes.worst && extremes.worst.picker === pk && extremes.worst.partner === pt
+  const pickers  = players.filter(pid => matrix[pid])
+  const partners = [...players.filter(pid => pickers.some(pk => matrix[pk][pid])), ...(pickers.some(pk => matrix[pk][LONER]) ? [LONER] : [])]
+  const pairName = pt => (pt === LONER ? 'Loner' : dn(pt))
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14 }}>
@@ -255,6 +271,102 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
           })}
         </div>
       </Section>
+
+      {/* Picker × partner records */}
+      {pickers.length > 0 && (
+        <Section title="Picker × Partner">
+          {asGrid ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 10, width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left', padding: '2px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>Pick ↓</th>
+                    {partners.map(pt => (
+                      <th key={pt} style={{ padding: '2px 3px', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap', maxWidth: 44, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pairName(pt)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pickers.map(pk => (
+                    <tr key={pk} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '3px 4px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{dn(pk)}</td>
+                      {partners.map(pt => {
+                        const c = matrix[pk][pt]
+                        const hl = c && (isBest(pk, pt) ? 'rgba(34,197,94,0.18)' : isWorst(pk, pt) ? 'rgba(239,68,68,0.18)' : null)
+                        return (
+                          <td key={pt} style={{ padding: '3px 2px', textAlign: 'center', background: hl ?? undefined, borderRadius: 4 }}>
+                            {c && <>
+                              <div style={{ fontWeight: 700 }}>{c.wins}-{c.losses}</div>
+                              <div style={{ fontWeight: 800, color: tone(c.net) }}>{usd(c.net)}</div>
+                            </>}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+              {pickers.flatMap(pk => Object.entries(matrix[pk]).map(([pt, c]) => ({ pk, pt, ...c })))
+                .sort((a, b) => b.net - a.net)
+                .map(({ pk, pt, wins, losses, net }) => (
+                  <div key={pk + pt} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 6px', borderRadius: 4,
+                    background: isBest(pk, pt) ? 'rgba(34,197,94,0.15)' : isWorst(pk, pt) ? 'rgba(239,68,68,0.15)' : undefined,
+                  }}>
+                    <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{dn(pk)} + {pairName(pt)}</span>
+                    <span style={{ fontWeight: 700 }}>{wins}-{losses}</span>
+                    <span style={{ fontWeight: 800, color: tone(net), width: 48, textAlign: 'right' }}>{usd(net)}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+          {(extremes.best || extremes.worst) && (
+            <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-muted)' }}>
+              {extremes.best && <span style={{ color: 'var(--success)' }}>Best: {dn(extremes.best.picker)} + {pairName(extremes.best.partner)}</span>}
+              {extremes.best && extremes.worst && ' · '}
+              {extremes.worst && <span style={{ color: 'var(--danger)' }}>Worst: {dn(extremes.worst.picker)} + {pairName(extremes.worst.partner)}</span>}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* Money by role */}
+      <Section title="Money by Role">
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) repeat(4, minmax(0,1fr))', gap: '4px 4px', fontSize: 11, alignItems: 'center' }}>
+          {['', 'Pick', 'Partner', 'Defend', 'Pick %'].map(h => (
+            <span key={h} style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: h ? 'right' : 'left' }}>{h}</span>
+          ))}
+          {players.filter(pid => roles[pid]?.played).map(pid => {
+            const r = roles[pid]
+            return [
+              <span key={pid + 'n'} style={{ color: 'var(--text-secondary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dn(pid)}</span>,
+              ...[r.picking, r.partnering, r.defending].map((v, i) => (
+                <span key={pid + i} style={{ textAlign: 'right', fontWeight: 700, color: tone(v) }}>{usd(v)}</span>
+              )),
+              <span key={pid + 'r'} style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{r.pickRate}%</span>,
+            ]
+          })}
+        </div>
+      </Section>
+
+      {/* Crack scorecard */}
+      {cracks.total > 0 && (
+        <Section title="Cracks">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {Object.entries(cracks.players).sort((a, b) => b[1].net - a[1].net).map(([pid, c]) => (
+              <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{dn(pid)}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{c.called} called · {c.won} won</span>
+                <span style={{ fontWeight: 800, color: tone(c.net), width: 48, textAlign: 'right' }}>{usd(c.net)}</span>
+              </div>
+            ))}
+            <Fact label="Table" value={`${cracks.total} cracked · ${cracks.worked} worked`} />
+          </div>
+        </Section>
+      )}
 
       {/* Session facts */}
       <Section title="Session">

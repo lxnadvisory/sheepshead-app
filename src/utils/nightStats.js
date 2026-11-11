@@ -72,3 +72,88 @@ export function personalStatsUrl(statsUrl, pid) {
 export function allTimeStatsUrl(origin, pid) {
   return pid ? `${origin}/stats#stats/p/${encodeURIComponent(pid)}` : `${origin}/stats`
 }
+
+// ── In-game stats (shared with the Analytics page later) ─────────────────────
+// All take one night's hands. F-Ups are left out, and a player only counts in
+// hands they played (not their sit-outs).
+
+// Played = not sitting out and in the hand (every defender pays or collects; a
+// Smith-rule picker/partner can be at 0). Seats joined later load as 0 on old hands.
+const playedHand = (h, pid) => h.handType !== 'fup' && !sitOutsOf(h).includes(pid) &&
+  ((h.scores?.[pid] ?? 0) !== 0 || pid === h.picker || (!h.isLoner && pid === h.partner))
+const delta = (h, pid) => h.scores?.[pid] ?? 0
+
+export const LONER = 'loner'
+
+/**
+ * Picker × partner records: { [picker]: { [partner | LONER]: { wins, losses, net } } }.
+ * net is the picking side's combined result (picker + partner); a hand counts as
+ * a win when that is positive.
+ */
+export function pairMatrix(hands) {
+  const m = {}
+  hands.forEach(h => {
+    if (h.handType === 'fup' || !h.picker) return
+    const col  = h.isLoner || !h.partner ? LONER : h.partner
+    const team = delta(h, h.picker) + (col === LONER ? 0 : delta(h, h.partner))
+    const cell = ((m[h.picker] ??= {})[col] ??= { wins: 0, losses: 0, net: 0 })
+    cell.net += team
+    if (team > 0) cell.wins++
+    else if (team < 0) cell.losses++
+  })
+  return m
+}
+
+/** Best and worst picker+partner pair by net: { best, worst } as { picker, partner, ...cell }. */
+export function pairExtremes(matrix) {
+  const cells = Object.entries(matrix).flatMap(([picker, row]) =>
+    Object.entries(row).map(([partner, c]) => ({ picker, partner, ...c })))
+  if (cells.length < 2) return { best: null, worst: null }
+  const sorted = [...cells].sort((a, b) => b.net - a.net)
+  const best = sorted[0].net > 0 ? sorted[0] : null
+  const worst = sorted.at(-1).net < 0 ? sorted.at(-1) : null
+  return { best, worst }
+}
+
+/**
+ * Money by role per player: { [pid]: { picking, partnering, defending, picks, played, pickRate } }.
+ * pickRate = hands picked ÷ hands played (0–100).
+ */
+export function moneyByRole(hands, players) {
+  const out = Object.fromEntries(players.map(pid => [pid, { picking: 0, partnering: 0, defending: 0, picks: 0, played: 0, pickRate: 0 }]))
+  hands.forEach(h => players.forEach(pid => {
+    if (!playedHand(h, pid)) return
+    const s = out[pid]
+    s.played++
+    if (pid === h.picker) { s.picks++; s.picking += delta(h, pid) }
+    else if (!h.isLoner && pid === h.partner) s.partnering += delta(h, pid)
+    else s.defending += delta(h, pid)
+  }))
+  Object.values(out).forEach(s => { s.pickRate = s.played ? Math.round((s.picks / s.played) * 100) : 0 })
+  return out
+}
+
+/**
+ * Crack scorecard: { players: { [pid]: { called, won, net } }, total, worked }.
+ * called = hands they cracked, won = those they came out ahead on, net = their
+ * result on those hands. total / worked = cracked hands at the table and how
+ * many the picker lost (same as the "Cracks" line).
+ */
+export function crackScorecard(hands) {
+  const players = {}
+  let total = 0, worked = 0
+  hands.forEach(h => {
+    if (h.handType === 'fup') return
+    const crackers = h.crackers ?? []
+    if (!crackers.length && !h.crack) return
+    total++
+    if (delta(h, h.picker) < 0) worked++
+    crackers.forEach(pid => {
+      const s = (players[pid] ??= { called: 0, won: 0, net: 0 })
+      s.called++
+      s.net += delta(h, pid)
+      if (delta(h, pid) > 0) s.won++
+    })
+  })
+  return { players, total, worked }
+}

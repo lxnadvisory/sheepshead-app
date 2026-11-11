@@ -1,3 +1,5 @@
+import { PLAYERS_PER_HAND } from './hands.js'
+
 // Dealer rotation. sessions.dealer_pid is the source of truth; dealerIndex is
 // its position in the seat order, kept in memory for the rotation math.
 
@@ -31,4 +33,21 @@ export function deriveDealerIndex(players, leftPlayers, dealerPid, handCount) {
   const stored = dealerPid ? players.indexOf(dealerPid) : -1
   const idx = stored >= 0 ? stored : handCount % n
   return ensureActiveDealer(players, leftPlayers, idx)
+}
+
+/**
+ * Who sits out the next hand. Five play every hand: with 6 active the dealer
+ * sits out; with 7 the dealer and the next active seat after them. Left
+ * players are skipped. Dealer first.
+ */
+export function getSitOuts(players, leftPlayers, dealerIndex) {
+  const active = players.filter(p => !leftPlayers.includes(p))
+  const count  = Math.max(0, active.length - PLAYERS_PER_HAND)
+  const out    = []
+  let idx = ensureActiveDealer(players, leftPlayers, dealerIndex)
+  while (out.length < count) {
+    out.push(players[idx])
+    idx = nextActiveDealerIndex(players, leftPlayers, idx)
+  }
+  return out
 }

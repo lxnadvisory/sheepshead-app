@@ -4,7 +4,7 @@ import DealerButton from './DealerButton'
 import SaveErrorBox from './SaveErrorBox'
 
 export default function FupModal({
-  players,          // active player IDs for this hand (dealer excluded for 6-player)
+  players,          // the players in this hand (sit-outs excluded: they neither pay nor collect)
   getPlayer,
   getDisplayName,
   lastRoundActive,  // whether last-round multiplier is in effect

@@ -2,8 +2,11 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { getDisplayName as computeDisplayName } from '../utils/displayName'
 import { supabase, hasSupabase } from '../supabase'
 import * as db from '../db'
-import { nextActiveDealerIndex, ensureActiveDealer, deriveDealerIndex } from '../utils/dealer'
-import { handParticipants } from '../utils/hands'
+import { nextActiveDealerIndex, ensureActiveDealer, deriveDealerIndex, getSitOuts } from '../utils/dealer'
+import { handParticipants, sitOutsOf } from '../utils/hands'
+
+// Most players at one table: five play each hand, up to two sit out
+const MAX_SEATS = 7
 
 // ── Default data ──────────────────────────────────────────────────────────────
 const DEFAULT_PLAYERS = [
@@ -569,7 +572,7 @@ export function useStore() {
   /**
    * Add a hand. Automatically:
    *  - bakes in lastRound flag from session state
-   *  - records the current dealer
+   *  - records the current dealer and everyone sitting out
    *  - advances dealerIndex
    *  - decrements lastRoundRemaining
    */
@@ -578,14 +581,11 @@ export function useStore() {
     if (!sess) throw new Error('Session not found — hand NOT saved.')
 
     const leftPlayers     = sess.leftPlayers ?? []
-    const activeSeatOrder = sess.players.filter(p => !leftPlayers.includes(p))
-    const activeCount     = activeSeatOrder.length
-    const is6Player       = activeCount === 6
 
     const handNumber  = sess.hands.length + 1
     const dealerIndex = ensureActiveDealer(sess.players, leftPlayers, sess.dealerIndex)
-    const rawDealerPid = sess.players[dealerIndex] ?? null
-    const dealerPid   = is6Player ? rawDealerPid : null
+    const sitOutPids  = getSitOuts(sess.players, leftPlayers, dealerIndex)
+    const dealerPid   = sitOutPids[0] ?? null   // the dealer, when they sit out
     const lastRound   = (sess.lastRoundRemaining ?? 0) > 0
     const skipAdvance = hand.skipDealerAdvance === true
     const nextDealer  = skipAdvance
@@ -601,6 +601,7 @@ export function useStore() {
       handNumber,
       lastRound,
       dealerPid,
+      sitOutPids,
     }
 
     await persist(hand.handType === 'fup' ? 'Save F-Up' : 'Save hand',
@@ -707,7 +708,7 @@ export function useStore() {
    */
   const rejoinIfLeft = useCallback((sess, playerId) => {
     if (!(sess.leftPlayers ?? []).includes(playerId)) return false
-    if (activeCount(sess) >= 6) return true
+    if (activeCount(sess) >= MAX_SEATS) return true
     const leftPlayers = (sess.leftPlayers ?? []).filter(p => p !== playerId)
     update(s => ({
       ...s,
@@ -717,11 +718,11 @@ export function useStore() {
     return true
   }, [update, syncDealer])
 
-  /** Append a player from the roster to an active session (up to 6 active). */
+  /** Append a player from the roster to an active session (up to 7 active). */
   const addSessionPlayer = useCallback(async (sessionId, playerId) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
     if (!sess || rejoinIfLeft(sess, playerId)) return
-    if (sess.players.includes(playerId) || activeCount(sess) >= 6) return
+    if (sess.players.includes(playerId) || activeCount(sess) >= MAX_SEATS) return
     // Appending never touches stored hands: earlier hands have fewer scores than
     // seats, which loads as 0 for the new player.
     const newPlayers = [...sess.players, playerId]
@@ -736,11 +737,11 @@ export function useStore() {
     }))
   }, [update, persist, rejoinIfLeft])
 
-  /** Insert a roster player at a specific seat position (up to 6 active). */
+  /** Insert a roster player at a specific seat position (up to 7 active). */
   const insertSessionPlayer = useCallback(async (sessionId, playerId, seatIndex) => {
     const sess = stateRef.current.sessions.find(s => s.id === sessionId)
     if (!sess || rejoinIfLeft(sess, playerId)) return
-    if (sess.players.includes(playerId) || activeCount(sess) >= 6) return
+    if (sess.players.includes(playerId) || activeCount(sess) >= MAX_SEATS) return
     if (seatIndex >= sess.players.length) return addSessionPlayer(sessionId, playerId)
 
     const newPlayers = [
@@ -939,7 +940,7 @@ export function useStore() {
           if (h.pickerNoTricks || (h.pickerPoints != null && h.pickerPoints < 30)) s.schneiderCount++
         } else if (!h.isLoner && pid === h.partner) {
           s.asPartner++; s.partnerPts += delta
-        } else if (pid !== h.dealerPid) {
+        } else if (!sitOutsOf(h).includes(pid)) {
           s.asOpp++;     s.oppPts += delta
         }
 
@@ -956,7 +957,7 @@ export function useStore() {
         if (h.handType === 'fup') return          // F-Ups don't affect streaks
         const delta = h.scores?.[pid]
         if (delta === undefined) return
-        if (pid === h.dealerPid) return           // sit-out doesn't affect streak
+        if (sitOutsOf(h).includes(pid)) return    // sit-out doesn't affect streak
         if (delta > 0) {
           curW++; curL = 0; if (curW > maxW) maxW = curW; cur = curW
         } else if (delta < 0) {

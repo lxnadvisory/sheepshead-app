@@ -11,8 +11,10 @@ import DealerButton from '../components/DealerButton'
 import { exportData } from '../utils/backup'
 import { nightKey } from '../lib/analytics'
 import { handParticipants } from '../utils/hands'
+import { getSitOuts, nextActiveDealerIndex } from '../utils/dealer'
 
-const SEAT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th']
+const SEAT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th']
+const MAX_SEATS   = 7
 
 function useIsWide(bp = 1080) {
   const [wide, setWide] = useState(() => window.innerWidth >= bp)
@@ -36,7 +38,7 @@ function SetupView({ players, getDisplayName, startSession }) {
   }
 
   const toggle = (id) => setSelected(s =>
-    s.includes(id) ? s.filter(x => x !== id) : s.length < 6 ? [...s, id] : s
+    s.includes(id) ? s.filter(x => x !== id) : s.length < MAX_SEATS ? [...s, id] : s
   )
   const moveUp   = (i) => { if (i === 0) return; setSelected(s => { const a=[...s]; [a[i-1],a[i]]=[a[i],a[i-1]]; return a }) }
   const moveDown = (i) => setSelected(s => { if (i===s.length-1) return s; const a=[...s]; [a[i],a[i+1]]=[a[i+1],a[i]]; return a })
@@ -46,16 +48,16 @@ function SetupView({ players, getDisplayName, startSession }) {
     <div style={{ maxWidth: 520, margin: '0 auto', padding: '24px 16px' }}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800 }}>New Game Night</h1>
-        <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>Select 5–6 players, arrange seating, pick the first dealer.</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>Select 5–7 players, arrange seating, pick the first dealer.</div>
       </div>
 
       {/* Player picker */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <label style={{ marginBottom: 10 }}>Select Players ({selected.length}/6)</label>
+        <label style={{ marginBottom: 10 }}>Select Players ({selected.length}/{MAX_SEATS})</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {players.map(p => {
             const active = selected.includes(p.id)
-            const disabled = !active && selected.length >= 6
+            const disabled = !active && selected.length >= MAX_SEATS
             return (
               <button key={p.id} className={`toggle-btn ${active ? 'active' : ''}`}
                 onClick={() => toggle(p.id)} disabled={disabled} style={{ opacity: disabled ? 0.35 : 1, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -107,9 +109,11 @@ function SetupView({ players, getDisplayName, startSession }) {
               )
             })}
           </div>
-          {selected.length === 6 && (
+          {selected.length >= 6 && (
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-              In a 6-player game the dealer sits out each hand.
+              {selected.length === 6
+                ? 'With 6 players the dealer sits out each hand.'
+                : 'With 7 players the dealer and the next dealer sit out each hand (everyone sits out two in a row).'}
             </div>
           )}
         </div>
@@ -158,16 +162,23 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
   // activeSeatOrder: players still participating (excludes anyone who left mid-session)
   const activeSeatOrder = sessionPlayers.filter(p => !leftPlayers.includes(p))
   const activeCount     = activeSeatOrder.length
-  const is6Player       = activeCount === 6
   // store invariant: dealerIndex always points to a non-left player
   const currentDealer   = sessionPlayers[session.dealerIndex ?? 0]
-  const dealerPid       = is6Player ? currentDealer : null
+  // Next hand's sit-outs: none at 5, the dealer at 6, dealer + next dealer at 7
+  const sitOuts         = getSitOuts(sessionPlayers, leftPlayers, session.dealerIndex ?? 0)
+  const dealerPid       = sitOuts.length ? currentDealer : null
 
   // activePlayers is ONLY for the new-hand entry form (picker/partner dropdowns).
   // The scoreboard and hand history always iterate sessionPlayers for stable column order.
-  const activePlayers = dealerPid
-    ? activeSeatOrder.filter(p => p !== dealerPid)
-    : activeSeatOrder
+  const activePlayers = activeSeatOrder.filter(p => !sitOuts.includes(p))
+
+  // "+ Past Hand": the sit-outs for a hand inserted after hand #n — the next
+  // dealer after whoever dealt hand #n, or tonight's current pair at the end
+  const sitOutsAfter = n => {
+    const prevDealer = hands[n - 1]?.dealerPid
+    if (n >= hands.length || !prevDealer || !sessionPlayers.includes(prevDealer)) return sitOuts
+    return getSitOuts(sessionPlayers, leftPlayers, nextActiveDealerIndex(sessionPlayers, leftPlayers, sessionPlayers.indexOf(prevDealer)))
+  }
 
   const totals = useMemo(() => {
     const t = {}
@@ -186,7 +197,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
 
   // Roster players not playing right now — new to this table, or back after leaving it
   // (quick-add strip; full seat-position picker is in ManagePlayersModal)
-  const addablePlayers = allRosterPlayers.filter(p => !activeSeatOrder.includes(p.id) && activeCount < 6)
+  const addablePlayers = allRosterPlayers.filter(p => !activeSeatOrder.includes(p.id) && activeCount < MAX_SEATS)
 
   // ── Session header ──────────────────────────────────────────────────────────
   const SessionHeader = (
@@ -255,26 +266,32 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
 
       {/* Hero standings strip — primary visual element */}
       {(() => {
-        const av   = isWide ? 110 : 72
-        const nSz  = isWide ? 15  : 13
-        const sSz  = isWide ? 44  : 30
-        const pad  = isWide ? '16px 12px 14px' : '10px 8px 10px'
+        // Shrink so 6–7 cards fit across a phone (and the TV) without scrolling
+        const n    = sorted.length
+        const big  = n <= 5
+        const av   = isWide ? (big ? 110 : n === 6 ? 88 : 72) : (big ? 72 : n === 6 ? 44 : 36)
+        const nSz  = isWide ? 15  : big ? 13 : 11
+        const sSz  = isWide ? (big ? 44 : 36) : (big ? 30 : 20)
+        const pad  = isWide ? '16px 12px 14px' : big ? '10px 8px 10px' : '8px 2px 8px'
+        const gap  = isWide ? 12 : big ? 8 : 4
         return (
-          <div style={{ display: 'flex', gap: isWide ? 12 : 8, overflowX: 'auto', paddingBottom: 2 }}>
+          <div style={{ display: 'flex', gap, overflowX: big ? 'auto' : 'visible', paddingBottom: 2 }}>
             {sorted.map(pid => {
               const p     = getPlayer(pid)
               const total = totals[pid] ?? 0
               const ss    = streakStyle(streaks[pid])
               const isDlr = pid === currentDealer
+              const isOut = sitOuts.includes(pid) && !isDlr   // 7 players: the next dealer sits out too
               return (
                 <div key={pid} style={{
                   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  opacity: isOut ? 0.5 : 1, minWidth: 0,
                   background: ss?.bg ?? (isDlr ? 'rgba(139,92,246,0.06)' : 'var(--bg-elevated)'),
                   border: `2px solid ${isDlr
                     ? 'rgba(139,92,246,0.75)'
                     : total > 0 ? 'rgba(34,197,94,0.4)' : total < 0 ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`,
                   borderRadius: 'var(--radius)', padding: pad,
-                  minWidth: isWide ? 120 : 88, flexShrink: 0,
+                  ...(big ? { minWidth: isWide ? 120 : 88, flexShrink: 0 } : {}),
                   transition: 'background 0.4s', position: 'relative',
                   boxShadow: isDlr
                     ? '0 0 20px rgba(139,92,246,0.35)'
@@ -286,19 +303,25 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
                     {isDlr && (
                       <button type="button" onClick={() => setShowDealerPick(true)} title="Change dealer"
                         style={{ position: 'absolute', bottom: -4, left: -8, padding: 0, border: 0, background: 'none', cursor: 'pointer', lineHeight: 0 }}>
-                        <DealerButton size={isWide ? 28 : 22} />
+                        <DealerButton size={isWide ? 28 : big ? 22 : 18} />
                       </button>
+                    )}
+                    {isOut && (
+                      <span title="Sitting out" style={{
+                        position: 'absolute', top: -6, left: -6, fontSize: isWide ? 20 : 14, lineHeight: 1,
+                        filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))',
+                      }}>💤</span>
                     )}
                     {ss && (
                       <span style={{
-                        position: 'absolute', bottom: -4, right: -8,
-                        fontSize: isWide ? 24 : 18, lineHeight: 1,
+                        position: 'absolute', bottom: -4, right: big ? -8 : -4,
+                        fontSize: isWide ? 24 : big ? 18 : 13, lineHeight: 1,
                         filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))',
                       }}>{ss.icon}</span>
                     )}
                   </div>
-                  <div style={{ marginTop: 10 }}>
-                    <span style={{ fontSize: nSz, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{getDisplayName(pid)}</span>
+                  <div style={{ marginTop: big ? 10 : 6, maxWidth: '100%', minWidth: 0 }}>
+                    <span style={{ fontSize: nSz, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', display: 'block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getDisplayName(pid)}</span>
                   </div>
                   <span style={{ fontSize: sSz, fontWeight: 900, lineHeight: 1.1, marginTop: 4, color: total > 0 ? 'var(--success)' : total < 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
                     {total > 0 ? `+${total}` : total === 0 ? '0' : total}
@@ -418,6 +441,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           getPlayer={getPlayer}
           getDisplayName={getDisplayName}
           dealerPid={dealerPid}
+          sitOutPids={sitOuts}
           lastRoundActive={lastRoundActive}
           handNumber={hands.length + 1}
           sessionTotals={totals}
@@ -440,6 +464,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           getPlayer={getPlayer}
           getDisplayName={getDisplayName}
           dealerPid={editingHand.dealerPid}
+          sitOutPids={editingHand.sitOutPids}
           handNumber={editingHand.handNumber}
           initialValues={editingHand}
           sessionTotals={totals}
@@ -462,12 +487,14 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           dealerPid={null}
           isManualAdd={true}
           allSessionPlayers={sessionPlayers}
+          maxSitOuts={Math.max(1, activeCount - 5)}
+          defaultSitOutsFor={sitOutsAfter}
           existingHandCount={hands.length}
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
           currentDealer={currentDealer}
-          onSubmit={async ({ insertAfterHandNumber, dealerPid: manualDealer, ...handCore }) => {
-            await insertHandAt(session.id, { ...handCore, dealerPid: manualDealer }, insertAfterHandNumber)
+          onSubmit={async ({ insertAfterHandNumber, dealerPid: manualDealer, sitOutPids: manualSitOuts, ...handCore }) => {
+            await insertHandAt(session.id, { ...handCore, dealerPid: manualDealer, sitOutPids: manualSitOuts }, insertAfterHandNumber)
             setShowManualAdd(false)
           }}
           onClose={() => setShowManualAdd(false)}

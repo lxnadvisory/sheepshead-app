@@ -5,6 +5,11 @@ export const PLAYERS_PER_HAND = 5
 
 const scoreOf = (hand, pid) => hand.scores?.[pid] ?? 0
 
+/** Everyone who sat out a hand. Hands cached before sitOutPids existed fall back to the dealer. */
+export function sitOutsOf(hand) {
+  return hand.sitOutPids ?? (hand.dealerPid ? [hand.dealerPid] : [])
+}
+
 /**
  * The people who actually played `hand`: picker, partner (unless loner), the
  * F-Up offender, and everyone with a non-zero stored score — minus that hand's
@@ -15,7 +20,7 @@ const scoreOf = (hand, pid) => hand.scores?.[pid] ?? 0
  * seated at the time: someone who scored both at-or-before and at-or-after it).
  */
 export function handParticipants(hand, seatOrder, hands = []) {
-  const out  = new Set(hand.sitOutPids ?? (hand.dealerPid ? [hand.dealerPid] : []))
+  const out  = new Set(sitOutsOf(hand))
   const list = []
   const add  = pid => { if (pid && !out.has(pid) && !list.includes(pid)) list.push(pid) }
 

@@ -1,4 +1,5 @@
 import { dollars } from './textTable'
+import { sitOutsOf } from './hands'
 
 /**
  * One player's night across every table they sat at: picks, partner calls and
@@ -17,7 +18,7 @@ export function playerNightStats(sessions, pid) {
     s.hands.forEach(h => {
       const d = h.scores?.[pid] ?? 0
       net += d
-      if (h.handType === 'fup' || pid === h.dealerPid) return   // sat out or no deal
+      if (h.handType === 'fup' || sitOutsOf(h).includes(pid)) return   // sat out or no deal
       played++
       if (h.picker === pid) {
         picks++

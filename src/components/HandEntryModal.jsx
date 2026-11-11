@@ -26,6 +26,7 @@ export default function HandEntryModal({
   getPlayer,
   getDisplayName,
   dealerPid,
+  sitOutPids,         // everyone sitting out this hand (dealer first)
   lastRoundActive,
   initialValues,
   onSubmit,
@@ -37,6 +38,8 @@ export default function HandEntryModal({
   sessionTotals,      // {pid: number} — running totals for the strip
   sessionPlayerIds,   // string[] — all session players (including dealer)
   currentDealer,      // pid of current dealer
+  maxSitOuts = 1,     // "+ Past Hand": how many can sit out (2 with 7 seated)
+  defaultSitOutsFor,  // "+ Past Hand": (insertAfterHandNumber) => default sit-outs
 }) {
   const iv        = initialValues ?? {}
   const isEditing = !!initialValues
@@ -57,8 +60,10 @@ export default function HandEntryModal({
   const [smith,      setSmith]      = useState(iv.smith      ?? false)
 
   // Manual-add mode state
-  const [manualDealerPid,       setManualDealerPid]       = useState(null)
   const [insertAfterHandNumber, setInsertAfterHandNumber]  = useState(existingHandCount ?? 0)
+  // Past hand sit-outs, dealer first; defaults to the computed pair for that position
+  const [manualSitOuts, setManualSitOuts] = useState(() => isManualAdd ? (defaultSitOutsFor?.(existingHandCount ?? 0) ?? []) : [])
+  const manualDealerPid = manualSitOuts[0] ?? null
   const [manualLastRound,       setManualLastRound]        = useState(false)
 
   // ── Voice state ────────────────────────────────────────────────────────────
@@ -78,8 +83,9 @@ export default function HandEntryModal({
   // ── Derived ────────────────────────────────────────────────────────────────
   const pickerNoTricks    = pickerPoints === 0 && !shedClean
   const effectiveDealerPid = isManualAdd ? manualDealerPid : dealerPid
+  const effectiveSitOuts   = isManualAdd ? manualSitOuts : (sitOutPids ?? (dealerPid ? [dealerPid] : []))
   const effectivePlayers   = isManualAdd
-    ? (allSessionPlayers ?? players).filter(p => p !== manualDealerPid)
+    ? (allSessionPlayers ?? players).filter(p => !manualSitOuts.includes(p))
     : players
   const availablePartners = effectivePlayers.filter(p => p !== picker)
   const eligibleCrackers  = picker ? effectivePlayers.filter(p => p !== picker && (isLoner || p !== partner)) : []
@@ -187,8 +193,9 @@ export default function HandEntryModal({
       ...handData,
       players: effectiveDealerPid ? [...effectivePlayers, effectiveDealerPid] : effectivePlayers,
       dealerPid: effectiveDealerPid,
+      sitOutPids: effectiveSitOuts,
     })
-  }, [picker, partner, isLoner, pickerPoints, shedClean, smith, doublerCount, crackers, recrackers, blitzes, manualLastRound, effectivePlayers, effectiveDealerPid]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [picker, partner, isLoner, pickerPoints, shedClean, smith, doublerCount, crackers, recrackers, blitzes, manualLastRound, effectivePlayers, effectiveDealerPid, effectiveSitOuts.join()]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const multiplier    = getMultiplier({ doublerCount, crackers, recrackers, blitzes, lastRound: isManualAdd ? manualLastRound : undefined })
   const tier          = getTierLabel({ shedClean, pickerNoTricks, pickerPoints })
@@ -214,7 +221,7 @@ export default function HandEntryModal({
     }
     cancelCountdown()
     if (isManualAdd) {
-      submit({ ...toStored(handData), scores: preview, dealerPid: manualDealerPid, insertAfterHandNumber })
+      submit({ ...toStored(handData), scores: preview, dealerPid: manualDealerPid, sitOutPids: manualSitOuts, insertAfterHandNumber })
     } else {
       submit({ ...handData, scores: preview })
     }
@@ -335,7 +342,9 @@ export default function HandEntryModal({
               {isManualAdd ? 'Add Past Hand'
                 : isEditing ? `Editing Hand #${handNumber}`
                 : handNumber
-                  ? <>Log Hand · Hand #{handNumber}{effectiveDealerPid && <> · <DealerButton size={16} style={{ verticalAlign: '-2px' }} /> {getDisplayName(effectiveDealerPid)}</>}</>
+                  ? <>Hand #{handNumber}{currentDealer && <> · Dealer: <DealerButton size={16} style={{ verticalAlign: '-2px' }} /> {getDisplayName(currentDealer)}</>}
+                      {effectiveSitOuts.filter(p => p !== currentDealer).length > 0 &&
+                        <> · Out: {effectiveSitOuts.filter(p => p !== currentDealer).map(getDisplayName).join(', ')}</>}</>
                   : 'Log Hand'}
             </h2>
           </div>
@@ -460,7 +469,11 @@ export default function HandEntryModal({
                 <div style={LBL}>Insert Position</div>
                 <select
                   value={insertAfterHandNumber}
-                  onChange={e => setInsertAfterHandNumber(Number(e.target.value))}
+                  onChange={e => {
+                    const n = Number(e.target.value)
+                    setInsertAfterHandNumber(n)
+                    if (defaultSitOutsFor) setManualSitOuts(defaultSitOutsFor(n))
+                  }}
                   style={{
                     width: '100%', padding: '6px 10px',
                     background: 'var(--bg-surface)', border: '1px solid var(--border)',
@@ -474,20 +487,21 @@ export default function HandEntryModal({
                 </select>
               </div>
 
-              {/* Dealer */}
+              {/* Sit-outs: the dealer, plus the next dealer with 7 seated */}
               <div>
-                <div style={LBL}>Dealer (sits out)</div>
+                <div style={LBL}>{maxSitOuts > 1 ? `Sat out (dealer first, up to ${maxSitOuts})` : 'Dealer (sits out)'}</div>
                 <div className="toggle-group" style={{ flexWrap: 'wrap' }}>
                   <button
-                    className={`toggle-btn ${manualDealerPid === null ? 'active' : ''}`}
-                    onClick={() => setManualDealerPid(null)}
+                    className={`toggle-btn ${manualSitOuts.length === 0 ? 'active' : ''}`}
+                    onClick={() => setManualSitOuts([])}
                     style={{ padding: '5px 8px', fontSize: 12 }}
                   >None (5-player)</button>
                   {(allSessionPlayers ?? players).map(pid => (
                     <button key={pid}
-                      className={`toggle-btn ${manualDealerPid === pid ? 'active-warning' : ''}`}
+                      className={`toggle-btn ${manualSitOuts.includes(pid) ? 'active-warning' : ''}`}
                       onClick={() => {
-                        setManualDealerPid(pid)
+                        setManualSitOuts(prev => prev.includes(pid) ? prev.filter(x => x !== pid)
+                          : prev.length < maxSitOuts ? [...prev, pid] : [...prev.slice(0, maxSitOuts - 1), pid])
                         if (picker === pid)  { setPicker(''); setPartner(''); setCrackers([]); setRecrackers([]) }
                         else if (partner === pid) { setPartner(''); setRecrackers([]) }
                       }}
@@ -495,6 +509,7 @@ export default function HandEntryModal({
                     >
                       <Avatar player={getPlayer(pid)} size={16} />
                       {getDisplayName(pid)}
+                      {manualSitOuts[0] === pid && <DealerButton size={14} />}
                     </button>
                   ))}
                 </div>
@@ -751,7 +766,7 @@ export default function HandEntryModal({
                 {allDisplayPlayers.map(pid => {
                   const p     = getPlayer(pid)
                   const delta = preview[pid] ?? 0
-                  const isDlr = pid === dealerPid
+                  const isDlr = effectiveSitOuts.includes(pid)
                   const smithActive = smith && !isLoner && partner
                   let role
                   if (isDlr) {

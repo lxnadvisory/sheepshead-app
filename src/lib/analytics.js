@@ -84,10 +84,11 @@ export function rowsFromStore(players, sessions) {
         mult: isFup ? (h.multiplier ?? 1) : getMultiplier(h),
         seat_deltas: s.players.map(pid => h.scores?.[pid] ?? 0),
         seat_roles: s.players.map(pid =>
-          pid === h.dealerPid ? 'out'
+          (h.sitOutPids ?? (h.dealerPid ? [h.dealerPid] : [])).includes(pid) ? 'out'
           : pid === (isFup ? h.offenderId : h.picker) ? 'picker'
           : !h.isLoner && pid === h.partner ? 'partner' : 'opp'),
         dealer_name: h.dealerPid ?? null,
+        sit_out: h.sitOutPids ?? null,
         cracked_by: (h.crackers ?? []).join(','),
         recracked_by: (h.recrackers ?? []).join(','),
         blitzes: h.blitzes ?? {},
@@ -126,12 +127,14 @@ export function normalize(rows) {
     const isLoner = !isFup && !!row.is_alone
     const partner = isFup || isLoner ? null : (row.partner_name || null)
     const dealer  = row.dealer_name || null
+    // Everyone who sat out: stored list (7-player hands have two), else the dealer
+    const sitOut  = Array.isArray(row.sit_out) ? row.sit_out : (dealer ? [dealer] : [])
 
     const seats = []
     order.forEach((pid, i) => {
       if (i >= deltas.length || deltas[i] == null) return   // not seated yet
       const stored = roles[i]
-      const role = isSatOut(stored) || (stored == null && pid === dealer) ? 'out'
+      const role = isSatOut(stored) || (stored == null && sitOut.includes(pid)) ? 'out'
         : pid === picker ? 'picker'
         : pid === partner ? 'partner'
         : 'opp'
@@ -149,7 +152,7 @@ export function normalize(rows) {
       night: nightKey(sess._ts),
       num: row.hand_number ?? 0,
       isFup,
-      picker, partner, isLoner, dealer,
+      picker, partner, isLoner, dealer, sitOut,
       tier,
       pickerWon: !isFup && WIN_TIERS.has(tier),
       points: row.points == null ? null : Number(row.points),
@@ -184,9 +187,9 @@ export function findMisalignedHands(norm) {
     const bad = h.seatOrder.some((pid, i) => {
       if (i >= h.storedRoles.length) return false
       const r = h.storedRoles[i]
-      if (isSatOut(r)) return h.dealer ? pid !== h.dealer : false
+      if (isSatOut(r)) return h.sitOut.length ? !h.sitOut.includes(pid) : false
       const expected = pid === h.picker ? 'picker' : pid === h.partner ? 'partner' : 'opp'
-      if (pid === h.dealer) return true   // dealer should be sitting out
+      if (h.sitOut.includes(pid)) return true   // should be sitting out
       return String(r).toLowerCase() !== expected
     })
     if (bad) {

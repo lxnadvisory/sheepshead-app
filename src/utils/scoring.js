@@ -7,7 +7,8 @@
  *   recrackers    {string[]} player IDs who re-cracked (picker/partner)
  *   blitzes       {Object}  { [pid]: { black:bool, red:bool } }
  *   lastRound     {boolean} auto-applied by store (session countdown)
- *   dealerPid     {string|null} sits out in 6-player (score = 0)
+ *   dealerPid     {string|null} the dealer when they sit out (score = 0)
+ *   sitOutPids    {string[]}    everyone sitting out, incl. the dealer (score = 0)
  *
  * LEGACY fields (still accepted for old hands):
  *   doubler, crack, reCrack, blackBlitz, redBlitz, blitz
@@ -38,7 +39,7 @@ export function calculateHandScores({
   smith,
   // new
   doublerCount, crackers, recrackers, blitzes,
-  lastRound, dealerPid,
+  lastRound, dealerPid, sitOutPids,
   // legacy
   doubler, crack, reCrack, blackBlitz, redBlitz, blitz,
   players,
@@ -63,7 +64,8 @@ export function calculateHandScores({
 
   // ── Scores ────────────────────────────────────────────────────────────────
   const scores = {}
-  const activePlayers = dealerPid ? players.filter(p => p !== dealerPid) : players
+  const out = new Set([...(sitOutPids ?? []), dealerPid].filter(Boolean))
+  const activePlayers = players.filter(p => !out.has(p))
 
   if (isLoner) {
     // Use the separate loner lookup table — never derive from partner-game values
@@ -112,7 +114,7 @@ export function calculateHandScores({
     }
   }
 
-  if (dealerPid) scores[dealerPid] = 0
+  out.forEach(p => { scores[p] = 0 })
 
   return scores
 }

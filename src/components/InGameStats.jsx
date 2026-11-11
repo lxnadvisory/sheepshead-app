@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import Avatar from './Avatar'
+import { sitOutsOf } from '../utils/hands'
 
 // ── Streak helpers ────────────────────────────────────────────────────────────
 // First icon appears only after this many consecutive wins/losses.
@@ -12,7 +13,7 @@ export function computeStreaks(hands, players) {
   hands.forEach(hand => {
     if (hand.handType === 'fup') return          // F-Ups don't affect streaks
     players.forEach(pid => {
-      if (pid === hand.dealerPid) return          // sit-out doesn't affect streak
+      if (sitOutsOf(hand).includes(pid)) return   // sit-out doesn't affect streak
       const delta = hand.scores?.[pid] ?? 0
       if (delta > 0)      streaks[pid] = streaks[pid] > 0 ? streaks[pid] + 1 : 1
       else if (delta < 0) streaks[pid] = streaks[pid] < 0 ? streaks[pid] - 1 : -1

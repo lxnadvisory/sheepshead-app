@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import Avatar from './Avatar'
 import DealerButton from './DealerButton'
+import { sitOutsOf } from '../utils/hands'
 import HandIcons from './HandIcons'
 
 function fmt(n) {
@@ -69,6 +70,7 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
   const accent      = isFup ? 'var(--danger)' : 'var(--primary)'
   const bgInfo      = isFup ? 'rgba(239,68,68,0.06)' : 'rgba(99,102,241,0.07)'
   const bgTiles     = isFup ? 'rgba(239,68,68,0.02)' : 'rgba(99,102,241,0.03)'
+  const compact     = players.length >= 6
 
   return (
     <>
@@ -113,11 +115,11 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
 
       {/* Player tiles row — one <td> per player column */}
       <tr style={{ borderBottom: `2px solid ${accent}`, background: bgTiles }}>
-        <td style={tdStyle(true)} />
+        <td style={tdStyle(true, compact)} />
         {players.map(pid => {
           const p      = getPlayer(pid)
           const delta  = hand.scores?.[pid] ?? 0
-          const isSat  = !isFup && pid === hand.dealerPid
+          const isSat  = !isFup && sitOutsOf(hand).includes(pid)
           const isLeft = leftPlayers.includes(pid)
 
           let role = null
@@ -130,7 +132,7 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
           }
 
           return (
-            <td key={pid} style={{ ...tdStyle(false), padding: '8px 4px', opacity: (isSat || isLeft) ? 0.45 : 1 }}>
+            <td key={pid} style={{ ...tdStyle(false, compact), padding: compact ? '8px 1px' : '8px 4px', opacity: (isSat || isLeft) ? 0.45 : 1 }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <div style={{ height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 3 }}>
                   {role && (
@@ -145,7 +147,7 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
                 </div>
                 {!isFup && <HandIcons hand={hand} pid={pid} size={11} showLoner={true} />}
                 <span style={{
-                  fontSize: 22, fontWeight: 900, lineHeight: 1, marginTop: 2,
+                  fontSize: compact ? 16 : 22, fontWeight: 900, lineHeight: 1, marginTop: 2,
                   color: delta > 0 ? 'var(--success)' : delta < 0 ? 'var(--danger)' : 'var(--text-muted)',
                 }}>
                   {delta > 0 ? `+${delta}` : delta === 0 ? '—' : delta}
@@ -170,6 +172,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
 
   if (!players.length) return null
 
+  const compact      = players.length >= 6
   const mostRecent   = hands.length > 0 ? hands[hands.length - 1] : null
   const earlierHands = hands.length > 1 ? [...hands.slice(0, -1)].reverse() : []
 
@@ -180,30 +183,32 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
     >
       <table style={{
         width: '100%', borderCollapse: 'collapse',
-        minWidth: Math.max(320, players.length * 100 + 96),
+        minWidth: compact ? 0 : Math.max(320, players.length * 100 + 96),
+        tableLayout: compact ? 'fixed' : undefined,
         fontSize: 13,
       }}>
 
         {/* ── Header: avatar + name + running total ── */}
         <thead>
           <tr>
-            <th style={thStyle()}>Hnd</th>
+            <th style={{ ...thStyle(compact), width: compact ? 34 : undefined }}>Hnd</th>
             {players.map(pid => {
               const p        = getPlayer(pid)
               const isDealer = pid === dealerPid
               const isLeft   = leftPlayers.includes(pid)
               const total    = totals[pid] ?? 0
               return (
-                <th key={pid} style={{ ...thStyle(), opacity: isLeft ? 0.45 : 1 }}>
+                <th key={pid} style={{ ...thStyle(compact), opacity: isLeft ? 0.45 : 1 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                     <div style={{ position: 'relative' }}>
-                      <Avatar player={p} size={48} />
+                      <Avatar player={p} size={compact ? 30 : 48} />
                       {isDealer && !isLeft && (
-                        <DealerButton size={18} style={{ position: 'absolute', bottom: -4, right: -6 }} />
+                        <DealerButton size={compact ? 14 : 18} style={{ position: 'absolute', bottom: -4, right: -6 }} />
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <span style={{ color: isLeft ? 'var(--text-muted)' : undefined }}>
+                      <span style={{ color: isLeft ? 'var(--text-muted)' : undefined,
+                        ...(compact ? { fontSize: 9, display: 'block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' } : {}) }}>
                         {getDisplayName ? getDisplayName(pid) : (p?.firstName ?? p?.name ?? pid)}
                       </span>
                       {isLeft && (
@@ -215,7 +220,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
                       )}
                     </div>
                     <span style={{
-                      fontSize: 20, fontWeight: 900, lineHeight: 1,
+                      fontSize: compact ? 15 : 20, fontWeight: 900, lineHeight: 1,
                       color: total > 0 ? 'var(--success)' : total < 0 ? 'var(--danger)' : 'var(--text-muted)',
                     }}>
                       {total > 0 ? `+${total}` : total === 0 ? '0' : total}
@@ -253,7 +258,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
           {/* Earlier hands — compact rows, newest first */}
           {earlierHands.map(hand => (
             <tr key={hand.id} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={tdStyle(true)}>
+              <td style={tdStyle(true, compact)}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>
@@ -282,11 +287,11 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
               {players.map(pid => {
                 const delta  = hand.scores?.[pid] ?? 0
                 const isKey  = pid === hand.picker || (!hand.isLoner && pid === hand.partner)
-                const isSit  = pid === hand.dealerPid
+                const isSit  = sitOutsOf(hand).includes(pid)
                 const isLeft = leftPlayers.includes(pid)
                 return (
                   <td key={pid} style={{
-                    ...tdStyle(false),
+                    ...tdStyle(false, compact),
                     background: isKey && !isLeft ? 'rgba(99,102,241,0.04)' : undefined,
                     opacity: isSit || isLeft ? 0.35 : 1,
                   }}>
@@ -305,9 +310,10 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
   )
 }
 
-function thStyle() {
+// compact: 6–7 columns, sized to fit a phone without scrolling sideways
+function thStyle(compact) {
   return {
-    padding: '10px 12px', textAlign: 'center',
+    padding: compact ? '8px 2px' : '10px 12px', textAlign: 'center',
     color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700,
     textTransform: 'uppercase', letterSpacing: '0.04em',
     borderBottom: '2px solid var(--border)',
@@ -316,11 +322,11 @@ function thStyle() {
   }
 }
 
-function tdStyle(isFirst) {
+function tdStyle(isFirst, compact) {
   return {
-    padding: '8px 12px', textAlign: 'center', verticalAlign: 'middle',
-    fontWeight: isFirst ? 600 : 700, fontSize: 14,
+    padding: compact ? '6px 2px' : '8px 12px', textAlign: 'center', verticalAlign: 'middle',
+    fontWeight: isFirst ? 600 : 700, fontSize: compact ? 12 : 14,
     color: isFirst ? 'var(--text-secondary)' : undefined,
-    minWidth: isFirst ? 56 : undefined,
+    minWidth: isFirst ? (compact ? 34 : 56) : undefined,
   }
 }

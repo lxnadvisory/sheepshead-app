@@ -31,16 +31,18 @@ function AddTab({ session, allRosterPlayers, getDisplayName, onInsert, onClose }
 
   const leftPlayers   = session.leftPlayers ?? []
   const activeCount   = session.players.filter(p => !leftPlayers.includes(p)).length
-  const isFull        = activeCount >= 6
+  const isFull        = activeCount >= 7
   // Not playing right now: new to this table, or left earlier and coming back
   const available     = allRosterPlayers.filter(p => !session.players.includes(p.id) || leftPlayers.includes(p.id))
   const isRejoin      = selectedPid && leftPlayers.includes(selectedPid)
-  const going6Player  = activeCount === 5
+  const sitOutNote    = activeCount === 5 ? 'Adding a 6th player: the dealer sits out each hand.'
+    : activeCount === 6 ? 'Adding a 7th player: the dealer and next dealer sit out each hand.'
+    : null
 
   if (isFull) {
     return (
       <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>
-        6 players are already playing. Remove a player first to make room.
+        7 players are already playing. Remove a player first to make room.
       </p>
     )
   }
@@ -105,9 +107,9 @@ function AddTab({ session, allRosterPlayers, getDisplayName, onInsert, onClose }
             </button>
           </div>
 
-          {going6Player && (
+          {sitOutNote && (
             <div style={{ marginTop: 10, fontSize: 12, color: 'var(--warning)', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius-sm)', padding: '7px 10px' }}>
-              Adding a 6th active player enables dealer sit-out rotation.
+              {sitOutNote} Starts with the next hand.
             </div>
           )}
         </div>
@@ -134,7 +136,9 @@ function RemoveTab({ session, getPlayer, getDisplayName, onMarkLeft, onClose }) 
 
   const leftPlayers   = session.leftPlayers ?? []
   const activePlayers = session.players.filter(p => !leftPlayers.includes(p))
-  const going5Player  = activePlayers.length === 6
+  const sitOutNote    = activePlayers.length === 7 ? 'Going 7→6: only the dealer sits out from the next hand.'
+    : activePlayers.length === 6 ? 'Going 6→5: nobody sits out from the next hand.'
+    : null
 
   if (activePlayers.length <= 1) {
     return (
@@ -146,7 +150,7 @@ function RemoveTab({ session, getPlayer, getDisplayName, onMarkLeft, onClose }) 
 
   const handsInvolved = selectedPid
     ? session.hands.filter(h =>
-        (h.scores?.[selectedPid] ?? 0) !== 0 || h.dealerPid === selectedPid
+        (h.scores?.[selectedPid] ?? 0) !== 0 || (h.sitOutPids ?? [h.dealerPid]).includes(selectedPid)
       ).length
     : 0
 
@@ -182,9 +186,9 @@ function RemoveTab({ session, getPlayer, getDisplayName, onMarkLeft, onClose }) 
             Their column will stay on the scoreboard (greyed out) and their balance from{' '}
             <strong>{session.hands.length} hand{session.hands.length !== 1 ? 's' : ''}</strong> is preserved in final settlement.
             They won't appear in future hand entry.
-            {going5Player && (
+            {sitOutNote && (
               <span style={{ display: 'block', marginTop: 6, color: 'var(--warning)', fontWeight: 600 }}>
-                Going 6→5 active players disables dealer sit-out rotation.
+                {sitOutNote}
               </span>
             )}
           </div>

@@ -33,6 +33,7 @@
 
 import { supabase } from './supabase.js'
 import { getTierLabel, getMultiplier } from './utils/scoring.js'
+import { deriveDoublerCount } from './utils/hands.js'
 
 // ── Players ───────────────────────────────────────────────────────────────────
 
@@ -234,7 +235,7 @@ export function dbRowToHand(row, seatOrder) {
       ...extra,
     }
   }
-  return {
+  const hand = {
     id:             row.id,
     handNumber:     row.hand_number,
     picker:         row.picker_name   || null,
@@ -253,12 +254,17 @@ export function dbRowToHand(row, seatOrder) {
     offenderId: row.offender_id || null,
     note:       row.note        || null,
     sitOutPids,
-    // NULL on hands saved before these columns existed
-    doublerCount:       row.doubler_count ?? 0,
-    doublerCountStored: row.doubler_count != null,
-    lastRound:          row.last_round ?? false,
+    doublerCount:   row.doubler_count ?? 0,
+    lastRound:      row.last_round    ?? false,
     ...extra,
   }
+  // Saved before doubler_count existed: work it out from what the hand paid
+  if (row.doubler_count == null) {
+    const { doublerCount, warning } = deriveDoublerCount(hand, seatOrder ?? [], row.mult)
+    hand.doublerCount = doublerCount
+    if (warning) hand.multiplierWarning = warning
+  }
+  return hand
 }
 
 /** Append unseated scores back on so a rewrite never shortens the stored arrays. */
@@ -331,7 +337,8 @@ function handToDb(hand, sessionId, seatOrder) {
     is_alone:     hand.isLoner  || false,
     points:       hand.pickerPoints ?? null,
     tier:         getTierLabel(hand),
-    mult:         getMultiplier(hand),
+    // The last-round ×2 is already one of the doublers; lastRound is only a label
+    mult:         getMultiplier({ ...hand, lastRound: false }),
     ...withUnseated(hand, seatDeltas, seatRoles),
     dealer_name:  hand.dealerPid || null,
     sit_out:      sitOutsOf(hand),

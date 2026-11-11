@@ -3,6 +3,7 @@ import { getDisplayName as computeDisplayName } from '../utils/displayName'
 import { supabase, hasSupabase } from '../supabase'
 import * as db from '../db'
 import { nextActiveDealerIndex, ensureActiveDealer, deriveDealerIndex } from '../utils/dealer'
+import { handParticipants } from '../utils/hands'
 
 // ── Default data ──────────────────────────────────────────────────────────────
 const DEFAULT_PLAYERS = [
@@ -627,6 +628,18 @@ export function useStore() {
     const existingHand = sess?.hands.find(h => h.id === handId)
     if (!sess || !existingHand) throw new Error('Hand not found — changes NOT saved.')
 
+    // An edit may only move money between the people who played that hand
+    const scores = handData.scores ?? {}
+    const sum = Object.values(scores).reduce((a, d) => a + d, 0)
+    if (Math.abs(sum) > 0.001) {
+      throw new Error(`Scores don't add up to 0 (sum ${sum > 0 ? '+' : ''}${sum}) — changes NOT saved.`)
+    }
+    const played   = new Set(handParticipants(existingHand, sess.players, sess.hands))
+    const outsiders = Object.entries(scores).filter(([pid, d]) => d !== 0 && !played.has(pid)).map(([pid]) => pid)
+    if (outsiders.length) {
+      throw new Error(`${outsiders.length} player(s) who didn't play hand #${existingHand.handNumber} would get a score — changes NOT saved.`)
+    }
+
     // Unseated scores (see dbRowToHand) aren't part of the edit form; carry them
     // through so editing an old hand never truncates its stored seat_deltas.
     const unseated = existingHand.unseatedDeltas
@@ -636,6 +649,7 @@ export function useStore() {
       id:         handId,
       handNumber: existingHand.handNumber,
       lastRound:  existingHand.lastRound,
+      sitOutPids: existingHand.sitOutPids,
       dealerPid:  existingHand.dealerPid,
       ...handData,
       ...unseated,
@@ -652,7 +666,7 @@ export function useStore() {
           hands: session.hands.map(h => {
             if (h.id !== handId) return h
             // Preserve auto-generated fields; overwrite everything else
-            return { id: h.id, handNumber: h.handNumber, lastRound: h.lastRound, dealerPid: h.dealerPid, ...handData, ...unseated }
+            return { id: h.id, handNumber: h.handNumber, lastRound: h.lastRound, dealerPid: h.dealerPid, sitOutPids: h.sitOutPids, ...handData, ...unseated }
           }),
         }
       }),

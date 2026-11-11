@@ -175,6 +175,11 @@ export default function HandEntryModal({
     doublerCount, crackers, recrackers, blitzes,
     ...(isManualAdd ? { lastRound: manualLastRound } : {}),
   }
+  // Stored form: the last-round ×2 counts as one doubler (as on live hands);
+  // lastRound is kept only as a label
+  const toStored = data => isManualAdd && manualLastRound
+    ? { ...data, doublerCount: Math.min(4, doublerCount + 1) }
+    : data
 
   const preview = useMemo(() => {
     if (!picker || (!isLoner && !partner)) return null
@@ -209,7 +214,7 @@ export default function HandEntryModal({
     }
     cancelCountdown()
     if (isManualAdd) {
-      submit({ ...handData, scores: preview, dealerPid: manualDealerPid, insertAfterHandNumber })
+      submit({ ...toStored(handData), scores: preview, dealerPid: manualDealerPid, insertAfterHandNumber })
     } else {
       submit({ ...handData, scores: preview })
     }
@@ -372,6 +377,12 @@ export default function HandEntryModal({
           style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 7 }}
           onPointerDown={autoPost !== null ? cancelCountdown : undefined}
         >
+          {isEditing && iv.multiplierWarning && (
+            <div style={{ padding: '7px 10px', borderRadius: 'var(--radius-sm)', fontSize: 12, fontWeight: 600,
+              background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--warning)' }}>
+              ⚠ {iv.multiplierWarning}
+            </div>
+          )}
 
           {/* Voice input — full width */}
           <div style={{

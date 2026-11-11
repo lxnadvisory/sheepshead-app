@@ -10,6 +10,7 @@ import Avatar from '../components/Avatar'
 import DealerButton from '../components/DealerButton'
 import { exportData } from '../utils/backup'
 import { nightKey } from '../lib/analytics'
+import { handParticipants } from '../utils/hands'
 
 const SEAT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th']
 
@@ -432,12 +433,10 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         />
       )}
 
-      {/* Edit hand modal — use the original hand's dealerPid, not the current hand's */}
+      {/* Edit hand modal — only the people who played that hand, never whoever is seated now */}
       {editingHand && (
         <HandEntryModal
-          players={editingHand.dealerPid
-            ? sessionPlayers.filter(p => p !== editingHand.dealerPid)
-            : sessionPlayers}
+          players={handParticipants(editingHand, sessionPlayers, hands)}
           getPlayer={getPlayer}
           getDisplayName={getDisplayName}
           dealerPid={editingHand.dealerPid}
@@ -478,7 +477,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
       {/* F-Up modal */}
       {(showFup || editingFupHand) && (
         <FupModal
-          players={activePlayers}
+          players={editingFupHand ? handParticipants(editingFupHand, sessionPlayers, hands) : activePlayers}
           getPlayer={getPlayer}
           getDisplayName={getDisplayName}
           lastRoundActive={lastRoundActive}

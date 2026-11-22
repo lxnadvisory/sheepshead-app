@@ -334,6 +334,22 @@ select option { background: var(--bg-elevated); }
   to { transform: rotate(360deg); }
 }
 
+/* Bumped pop-up: pops in, holds, fades; the eggplant bounces and wobbles */
+@keyframes bumpPop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  10%  { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  16%  { transform: translate(-50%, -50%) scale(1); }
+  85%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+}
+@keyframes bumpWobble {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20%      { transform: translateY(-18px) rotate(-14deg); }
+  40%      { transform: translateY(0) rotate(10deg); }
+  60%      { transform: translateY(-8px) rotate(-8deg); }
+  80%      { transform: translateY(0) rotate(4deg); }
+}
+
 @keyframes toastFade {
   0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   12%  { opacity: 1; transform: translateX(-50%) translateY(0); }

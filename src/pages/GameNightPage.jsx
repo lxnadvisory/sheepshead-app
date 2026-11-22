@@ -134,7 +134,7 @@ function pickToast(hand) {
   if (hand.pickerPoints != null && hand.pickerPoints < 30)
                            return { msg: 'Der Schneider! ✂️',   color: '#f97316'        }
   if (hand.pickerPoints != null && hand.pickerPoints < 61)
-                           return { msg: 'Bumped! Schade...',   color: 'var(--warning)' }
+                           return { bump: true, picker: hand.picker }   // big 🍆 pop-up
   if (hand.pickerPoints != null && hand.pickerPoints >= 91)
                            return { msg: 'Wunderbar! 🎉',       color: 'var(--success)' }
   return null
@@ -583,8 +583,29 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         </div>
       )}
 
+      {/* Bumped: a big wobbling eggplant, longer than the other toasts */}
+      {toast?.bump && (
+        <div
+          key={toast.key}
+          onAnimationEnd={e => e.target === e.currentTarget && setToast(null)}
+          style={{
+            position: 'fixed', top: '50%', left: '50%', zIndex: 600,
+            animation: 'bumpPop 3.4s ease forwards',
+            background: 'var(--bg-elevated)', border: '2px solid var(--warning)',
+            borderRadius: 24, padding: '18px 36px 20px',
+            boxShadow: '0 12px 48px rgba(0,0,0,0.55)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            pointerEvents: 'none', whiteSpace: 'nowrap',
+          }}
+        >
+          <span style={{ fontSize: 120, lineHeight: 1, display: 'inline-block', animation: 'bumpWobble 1.1s ease-in-out 2' }}>🍆</span>
+          <span style={{ marginTop: 8, fontSize: 30, fontWeight: 900, color: 'var(--warning)' }}>Bumped!</span>
+          {toast.picker && <span style={{ marginTop: 2, fontSize: 20, fontWeight: 700, color: 'var(--text-secondary)' }}>{getDisplayName(toast.picker)}</span>}
+        </div>
+      )}
+
       {/* German toast notification */}
-      {toast && (
+      {toast && !toast.bump && (
         <div
           key={toast.key}
           onAnimationEnd={() => setToast(null)}

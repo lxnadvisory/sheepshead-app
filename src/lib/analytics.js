@@ -89,6 +89,7 @@ export function rowsFromStore(players, sessions) {
           : pid === (isFup ? h.offenderId : h.picker) ? 'picker'
           : !h.isLoner && pid === h.partner ? 'partner' : 'opp'),
         dealer_name: h.dealerPid ?? null,
+        dealt_by: h.dealtBy ?? null,
         sit_out: h.sitOutPids ?? null,
         cracked_by: (h.crackers ?? []).join(','),
         recracked_by: (h.recrackers ?? []).join(','),
@@ -133,6 +134,7 @@ export function normalize(rows) {
     const isLoner = !isFup && !!row.is_alone
     const partner = isFup || isLoner ? null : (row.partner_name || null)
     const dealer  = row.dealer_name || null
+    const dealtBy = row.dealt_by    || null   // who dealt (every hand since Nov 22; older 6–7 player hands backfilled)
     // Everyone who sat out: stored list (7-player hands have two), else the dealer
     const sitOut  = Array.isArray(row.sit_out) ? row.sit_out : (dealer ? [dealer] : [])
 
@@ -158,7 +160,7 @@ export function normalize(rows) {
       night: nightKey(sess._ts),
       num: row.hand_number ?? 0,
       isFup, isLeaster, isPass, special,
-      picker, partner, isLoner, dealer, sitOut,
+      picker, partner, isLoner, dealer, dealtBy, sitOut,
       tier,
       pickerWon: !isFup && WIN_TIERS.has(tier),
       points: row.points == null ? null : Number(row.points),
@@ -175,6 +177,36 @@ export function normalize(rows) {
   }
   hands.sort((a, b) => a.sessionOrder - b.sessionOrder || a.num - b.num)
   return { hands, sessions }
+}
+
+// ── Seat positions ────────────────────────────────────────────────────────────
+
+/**
+ * Picking position of each player in a hand: { pid: 1–5 }. The five who played,
+ * in the deal's rotation (seat order), starting with the first player after the
+ * dealer — 1 = "under the gun" (first to pick) … 5 = last to pick (the dealer in
+ * a 5-player game). Sit-outs are skipped. Works on a normalized hand (seats) or
+ * an app hand (scores / sitOutPids).
+ * Returns null when who dealt isn't known or the five players can't be told.
+ */
+export function positionsForHand(hand, seatOrder) {
+  const dealer = hand.dealtBy
+  if (!dealer || !seatOrder?.includes(dealer)) return null
+  const out   = new Set(hand.sitOutPids ?? hand.sitOut ?? [])
+  const delta = pid => hand.scores ? (hand.scores[pid] ?? 0) : (hand.seats?.find(s => s.pid === pid)?.delta ?? 0)
+  const isOut = pid => out.has(pid) || hand.seats?.find(s => s.pid === pid)?.role === 'out'
+  // Played = not sitting out, and picked / partnered / paid or collected (seats
+  // not yet joined or already gone load as 0)
+  const played = seatOrder.filter(pid => !isOut(pid) &&
+    (delta(pid) !== 0 || pid === hand.picker || (!hand.isLoner && pid === hand.partner)))
+  if (played.length !== 5) return null
+  const n = seatOrder.length, d = seatOrder.indexOf(dealer), pos = {}
+  let next = 1
+  for (let i = 1; i <= n; i++) {
+    const pid = seatOrder[(d + i) % n]
+    if (played.includes(pid)) pos[pid] = next++
+  }
+  return pos
 }
 
 // ── Data checks ───────────────────────────────────────────────────────────────

@@ -177,10 +177,19 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
 
   // "+ Past Hand": the sit-outs for a hand inserted after hand #n — the next
   // dealer after whoever dealt hand #n, or tonight's current pair at the end
+  // Who dealt a hand inserted after hand #n: the dealer after whoever dealt #n
+  // (the same dealer after a doubler pass), or tonight's dealer at the end
+  const dealerAfter = n => {
+    const prev = hands[n - 1]
+    const prevDealer = prev?.dealtBy ?? prev?.dealerPid
+    if (n >= hands.length || !prevDealer || !sessionPlayers.includes(prevDealer)) return currentDealer
+    const idx = sessionPlayers.indexOf(prevDealer)
+    return sessionPlayers[prev.handType === 'pass' ? idx : nextActiveDealerIndex(sessionPlayers, leftPlayers, idx)]
+  }
   const sitOutsAfter = n => {
-    const prevDealer = hands[n - 1]?.dealerPid
-    if (n >= hands.length || !prevDealer || !sessionPlayers.includes(prevDealer)) return sitOuts
-    return getSitOuts(sessionPlayers, leftPlayers, nextActiveDealerIndex(sessionPlayers, leftPlayers, sessionPlayers.indexOf(prevDealer)))
+    if (n >= hands.length) return sitOuts
+    const dealer = dealerAfter(n)
+    return dealer ? getSitOuts(sessionPlayers, leftPlayers, sessionPlayers.indexOf(dealer)) : sitOuts
   }
 
   const totals = useMemo(() => {
@@ -514,7 +523,8 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           sessionPlayerIds={sessionPlayers}
           currentDealer={currentDealer}
           onSubmit={async ({ insertAfterHandNumber, dealerPid: manualDealer, sitOutPids: manualSitOuts, ...handCore }) => {
-            await insertHandAt(session.id, { ...handCore, dealerPid: manualDealer, sitOutPids: manualSitOuts }, insertAfterHandNumber)
+            const dealtBy = manualDealer ?? dealerAfter(insertAfterHandNumber) ?? null
+            await insertHandAt(session.id, { ...handCore, dealerPid: manualDealer, sitOutPids: manualSitOuts, dealtBy }, insertAfterHandNumber)
             setShowManualAdd(false)
           }}
           onClose={() => setShowManualAdd(false)}

@@ -23,6 +23,9 @@
  *           sitOutPids[]        ←→  sit_out TEXT[] (NULL on old hands: derived from seat_roles / dealer_name)
  *           doublerCount        ←→  doubler_count  (NULL on old hands)
  *           lastRound           ←→  last_round
+ *           dealtBy             ←→  dealt_by  (who dealt, every hand; dealer_name is only
+ *                                              the dealer when they sat out. NULL on old
+ *                                              5-player hands)
  *
  * F-Ups (handType 'fup' ←→ hand_type 'FUP') reuse the hands table. The NOT NULL
  * columns are filled with placeholders: picker_name = offender id, points = 0,
@@ -226,6 +229,7 @@ export function dbRowToHand(row, seatOrder) {
       isLoner:      false,
       pickerPoints: null,
       dealerPid:    row.dealer_name || null,
+      dealtBy:      row.dealt_by    || null,
       crackers:     [],
       recrackers:   [],
       blitzes:      {},
@@ -249,6 +253,7 @@ export function dbRowToHand(row, seatOrder) {
       amount:       Math.max(0, ...Object.values(scores)),
       multiplier:   row.mult ?? 1,
       dealerPid:    row.dealer_name || null,
+      dealtBy:      row.dealt_by    || null,
       scores,
       picker:       null,
       partner:      null,
@@ -274,6 +279,7 @@ export function dbRowToHand(row, seatOrder) {
     pickerNoTricks: row.no_tricks     || false,
     smith:          row.smith_rule    || false,
     dealerPid:      row.dealer_name   || null,
+    dealtBy:        row.dealt_by      || null,
     crackers:       row.cracked_by    ? row.cracked_by.split(',').filter(Boolean)    : [],
     recrackers:     row.recracked_by  ? row.recracked_by.split(',').filter(Boolean)  : [],
     blitzes:        row.blitzes       || {},
@@ -330,6 +336,7 @@ function fupToDb(hand, sessionId, seatOrder) {
         return 'opp'
       })),
     dealer_name:  hand.dealerPid || null,
+    dealt_by:     hand.dealtBy   || null,
     sit_out:      sitOutsOf(hand),
     doubler_count: hand.doublerCount ?? 0,
     last_round:   hand.lastRound || false,
@@ -366,6 +373,7 @@ function allPassToDb(hand, sessionId, seatOrder) {
         return 'opp'
       })),
     dealer_name:   hand.dealerPid || null,
+    dealt_by:      hand.dealtBy   || null,
     sit_out:       sitOutsOf(hand),
     doubler_count: hand.doublerCount ?? 0,
     last_round:    hand.lastRound || false,
@@ -406,6 +414,7 @@ function handToDb(hand, sessionId, seatOrder) {
     mult:         getMultiplier({ ...hand, lastRound: false }),
     ...withUnseated(hand, seatDeltas, seatRoles),
     dealer_name:  hand.dealerPid || null,
+    dealt_by:     hand.dealtBy   || null,
     sit_out:      sitOutsOf(hand),
     doubler_count: hand.doublerCount ?? 0,
     last_round:   hand.lastRound || false,

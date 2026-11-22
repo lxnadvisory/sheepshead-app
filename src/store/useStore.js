@@ -616,6 +616,7 @@ export function useStore() {
       handNumber,
       lastRound,
       dealerPid,
+      dealtBy: sess.players[dealerIndex] ?? null,   // who dealt, on every hand
       sitOutPids,
     }
 
@@ -666,6 +667,7 @@ export function useStore() {
       id:         handId,
       handNumber: existingHand.handNumber,
       lastRound:  existingHand.lastRound,
+      dealtBy:    existingHand.dealtBy,
       sitOutPids: existingHand.sitOutPids,
       dealerPid:  existingHand.dealerPid,
       ...handData,
@@ -683,7 +685,7 @@ export function useStore() {
           hands: session.hands.map(h => {
             if (h.id !== handId) return h
             // Preserve auto-generated fields; overwrite everything else
-            return { id: h.id, handNumber: h.handNumber, lastRound: h.lastRound, dealerPid: h.dealerPid, sitOutPids: h.sitOutPids, ...handData, ...unseated }
+            return { id: h.id, handNumber: h.handNumber, lastRound: h.lastRound, dealerPid: h.dealerPid, dealtBy: h.dealtBy, sitOutPids: h.sitOutPids, ...handData, ...unseated }
           }),
         }
       }),

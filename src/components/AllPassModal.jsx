@@ -3,13 +3,13 @@ import { calculateLeasterScores, verifyConservation } from '../utils/scoring'
 import Avatar from './Avatar'
 import SaveErrorBox from './SaveErrorBox'
 
-// Everyone passed: roll a die. 1–3 → play a leaster, 4–6 → throw it in for a
-// doubler (logged as an all-pass hand; the next hand defaults to ×2).
+// Everyone passed: roll a die. 1 → play a leaster; 2–6 → doubler: the same
+// dealer re-deals at ×2 (logged as an all-pass hand; the dealer doesn't move).
 const FACES      = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
 const ROLL_MS    = 1100
 const TICK_MS    = 75
 const MULT_STEPS = [1, 2, 4, 8, 16]
-const outcomeOf  = roll => (roll <= 3 ? 'leaster' : 'doubler')
+const outcomeOf  = roll => (roll === 1 ? 'leaster' : 'doubler')
 
 const LBL = { fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }
 
@@ -109,12 +109,12 @@ export default function AllPassModal({
                 ) : outcome === 'leaster' ? (
                   <>
                     <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--primary)' }}>Leaster!</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{rolled ? `Rolled ${rolled} (1–3)` : 'Table rolled'} · lowest points with a trick wins</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{rolled ? `Rolled ${rolled} (1)` : 'Table rolled'} · lowest points with a trick wins</div>
                   </>
                 ) : outcome === 'doubler' ? (
                   <>
-                    <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--warning)' }}>Doubler — next hand ×2</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{rolled ? `Rolled ${rolled} (4–6)` : 'Table rolled'} · throw it in</div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--warning)' }}>Doubler — re-deal ×2</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{rolled ? `Rolled ${rolled} (2–6)` : 'Table rolled'} · same dealer re-deals</div>
                   </>
                 ) : null}
               </div>
@@ -184,8 +184,8 @@ export default function AllPassModal({
 
           {outcome === 'doubler' && !rolling && (
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Logs an all-pass hand (nobody pays). The dealer moves on
-              {isEditing ? '.' : <>, and the next hand starts at <strong>×{nextMult}</strong> — you can still change it there.</>}
+              Logs an all-pass hand (nobody pays). The same dealer re-deals
+              {isEditing ? '.' : <> and that hand starts at <strong>×{nextMult}</strong> — you can still change it there.</>}
             </div>
           )}
         </div>

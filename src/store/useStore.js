@@ -597,11 +597,16 @@ export function useStore() {
     const sitOutPids  = getSitOuts(sess.players, leftPlayers, dealerIndex)
     const dealerPid   = sitOutPids[0] ?? null   // the dealer, when they sit out
     const lastRound   = (sess.lastRoundRemaining ?? 0) > 0
-    const skipAdvance = hand.skipDealerAdvance === true
+    // A doubler (all pass, die 2–6) is re-dealt by the same dealer at ×2: the
+    // dealer stays put and it doesn't use up a last-round hand
+    const isRedeal    = hand.handType === 'pass'
+    const skipAdvance = hand.skipDealerAdvance === true || isRedeal
     const nextDealer  = skipAdvance
       ? dealerIndex
       : nextActiveDealerIndex(sess.players, leftPlayers, dealerIndex)
-    const nextLR      = lastRound ? Math.max(0, (sess.lastRoundRemaining ?? 0) - 1) : 0
+    const nextLR      = !lastRound ? 0
+      : isRedeal ? sess.lastRoundRemaining
+      : Math.max(0, (sess.lastRoundRemaining ?? 0) - 1)
 
     // Strip the control flag before storing
     const { skipDealerAdvance: _skip, ...handCore } = hand

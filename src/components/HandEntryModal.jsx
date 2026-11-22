@@ -38,6 +38,7 @@ export default function HandEntryModal({
   sessionTotals,      // {pid: number} — running totals for the strip
   sessionPlayerIds,   // string[] — all session players (including dealer)
   currentDealer,      // pid of current dealer
+  pendingDoublers = 0, // all-pass hands thrown in right before this one (each ×2)
   maxSitOuts = 1,     // "+ Past Hand": how many can sit out (2 with 7 seated)
   defaultSitOutsFor,  // "+ Past Hand": (insertAfterHandNumber) => default sit-outs
 }) {
@@ -54,7 +55,8 @@ export default function HandEntryModal({
   const [shedClean,      setShedClean]      = useState(iv.shedClean      ?? false)
   const [pickerNoTricks, setPickerNoTricks] = useState(iv.pickerNoTricks ?? false)
   const [doublerCount, setDoublerCount] = useState(
-    isEditing ? (iv.doublerCount ?? (iv.doubler ? 1 : 0)) : isManualAdd ? 0 : (lastRoundActive ? 1 : 0)
+    isEditing ? (iv.doublerCount ?? (iv.doubler ? 1 : 0)) : isManualAdd ? 0
+      : Math.min(4, (lastRoundActive ? 1 : 0) + pendingDoublers)   // each all-pass right before adds ×2
   )
   const [crackers,   setCrackers]   = useState(iv.crackers   ?? [])
   const [recrackers, setRecrackers] = useState(iv.recrackers ?? [])

@@ -171,3 +171,23 @@ export function settleDebts(totals) {
 
   return transfers
 }
+
+// ── All pass → leaster ────────────────────────────────────────────────────────
+// House rule: when everyone passes a die decides — 1–3 play a leaster, 4–6 throw
+// it in for a doubler on the next hand.
+export const LEASTER_LOSS = -2   // each other playing player, at ×1 (winner collects it: +8 with five)
+
+/**
+ * Leaster scores: the winner collects from each of the other playing players.
+ * players = the five playing (sit-outs excluded); doublerCount includes the
+ * last-round ×2 and any pending doublers. Sit-outs get 0.
+ */
+export function calculateLeasterScores({ winner, players, doublerCount = 0, sitOutPids = [] }) {
+  const m = Math.min(16, Math.pow(2, Math.min(Math.max(doublerCount, 0), 4)))
+  const scores = {}
+  const others = players.filter(p => p !== winner)
+  others.forEach(p => { scores[p] = LEASTER_LOSS * m })
+  if (winner) scores[winner] = -LEASTER_LOSS * m * others.length
+  sitOutPids.forEach(p => { scores[p] = 0 })
+  return scores
+}

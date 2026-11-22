@@ -73,15 +73,16 @@ export function rowsFromStore(players, sessions) {
     sRows.push({ id: s.id, seat_order: s.players, created_at: s.date, date: s.date, status: s.active ? 'active' : 'ended' })
     s.hands.forEach(h => {
       const isFup = h.handType === 'fup'
+      const allPass = h.handType === 'leaster' || h.handType === 'pass'
       hRows.push({
         id: h.id, session_id: s.id, hand_number: h.handNumber,
-        hand_type: isFup ? 'FUP' : null,
+        hand_type: isFup ? 'FUP' : allPass ? h.handType.toUpperCase() : null,
         picker_name: isFup ? h.offenderId : h.picker,
         partner_name: isFup ? null : h.partner,
         is_alone: !!h.isLoner,
         points: h.pickerPoints,
-        tier: isFup ? 'FUP' : getTierLabel(h),
-        mult: isFup ? (h.multiplier ?? 1) : getMultiplier(h),
+        tier: isFup ? 'FUP' : allPass ? h.handType.toUpperCase() : getTierLabel(h),
+        mult: isFup ? (h.multiplier ?? 1) : getMultiplier({ ...h, lastRound: false }),
         seat_deltas: s.players.map(pid => h.scores?.[pid] ?? 0),
         seat_roles: s.players.map(pid =>
           (h.sitOutPids ?? (h.dealerPid ? [h.dealerPid] : [])).includes(pid) ? 'out'
@@ -123,6 +124,11 @@ export function normalize(rows) {
     const deltas = Array.isArray(row.seat_deltas) ? row.seat_deltas : []
     const roles  = Array.isArray(row.seat_roles) ? row.seat_roles : []
     const isFup  = normalizeTier(row.hand_type) === 'FUP'
+    // All pass: a leaster (winner stored as picker) or a pass thrown in for a doubler.
+    // Their money counts; picker / partner / crack stats and seat checks skip them.
+    const isLeaster = normalizeTier(row.hand_type) === 'LEASTER'
+    const isPass    = normalizeTier(row.hand_type) === 'PASS'
+    const special   = isLeaster || isPass
     const picker = isFup ? null : (row.picker_name || null)
     const isLoner = !isFup && !!row.is_alone
     const partner = isFup || isLoner ? null : (row.partner_name || null)
@@ -151,7 +157,7 @@ export function normalize(rows) {
       sessionOrder: sessionIdx.get(sess.id),
       night: nightKey(sess._ts),
       num: row.hand_number ?? 0,
-      isFup,
+      isFup, isLeaster, isPass, special,
       picker, partner, isLoner, dealer, sitOut,
       tier,
       pickerWon: !isFup && WIN_TIERS.has(tier),
@@ -183,7 +189,7 @@ export function normalize(rows) {
 export function findMisalignedHands(norm) {
   const proven = new Map()   // sessionId -> Set(num)
   for (const h of norm.hands) {
-    if (h.isFup || !h.storedRoles.length) continue
+    if (h.isFup || h.special || !h.storedRoles.length) continue
     const bad = h.seatOrder.some((pid, i) => {
       if (i >= h.storedRoles.length) return false
       const r = h.storedRoles[i]
@@ -200,7 +206,7 @@ export function findMisalignedHands(norm) {
   const out = []
   for (const [sessionId, nums] of proven) {
     const last = Math.max(...nums)
-    const hs = norm.hands.filter(h => h.sessionId === sessionId && !h.isFup && h.num <= last)
+    const hs = norm.hands.filter(h => h.sessionId === sessionId && !h.isFup && !h.special && h.num <= last)
     hs.forEach(h => out.push({ sessionId, night: h.night, num: h.num, proven: nums.has(h.num) }))
   }
   return out
@@ -280,7 +286,7 @@ export function computeAnalytics(rows, { scope = 'all', now = new Date() } = {})
       p.net += s.delta
       if (s.delta > 0) { p.moved += s.delta; movedTotal += s.delta }
       p.nightNet[h.night] = (p.nightNet[h.night] ?? 0) + s.delta
-      if (h.isFup) continue
+      if (h.isFup || h.special) continue
       p.base += s.delta / h.mult
       if (s.role === 'out') continue
       p.hands++
@@ -307,7 +313,7 @@ export function computeAnalytics(rows, { scope = 'all', now = new Date() } = {})
     }
     if (h.isFup) {
       if (h.offender) get(h.offender).fups++
-    } else {
+    } else if (!h.special) {
       normalHands++
       multSum += h.mult
       if (h.pickerWon) pickerWins++
@@ -354,7 +360,7 @@ export function computeAnalytics(rows, { scope = 'all', now = new Date() } = {})
     ranked.forEach((r, i) => { r.rank = i > 0 && Math.abs(r.net - ranked[i - 1].net) < EPS ? ranked[i - 1].rank : i + 1 })
     const top = ranked[0]?.net
     ranked.forEach(r => { if (Math.abs(r.net - top) < EPS) P[r.pid].nightsWon++ })
-    const handCount = hands.filter(h => h.night === n && !h.isFup).length
+    const handCount = hands.filter(h => h.night === n && !h.isFup && !h.isPass).length
     return { night: n, players: ranked, hands: handCount }
   })
 

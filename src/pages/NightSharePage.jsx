@@ -57,6 +57,8 @@ function YourNight({ stats, name, dn }) {
 
 function handSummary(h, dn) {
   if (h.handType === 'fup') return `F-Up · ${dn(h.offenderId)}${h.note ? ` — "${h.note}"` : ''}`
+  if (h.handType === 'pass') return 'All pass → Doubler 🎲'
+  if (h.handType === 'leaster') return `🎲 Leaster · ${dn(h.picker)} wins${(h.doublerCount ?? 0) > 0 ? ` ×${2 ** Math.min(h.doublerCount, 4)}` : ''}`
   const who = h.isLoner || !h.partner ? `${dn(h.picker)} alone` : `${dn(h.picker)} + ${dn(h.partner)}`
   return `${who} · ${getTierLabel(h)}${h.pickerPoints != null ? ` (${h.pickerPoints})` : ''}`
 }

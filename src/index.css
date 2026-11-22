@@ -350,6 +350,15 @@ select option { background: var(--bg-elevated); }
   80%      { transform: translateY(0) rotate(4deg); }
 }
 
+/* All Pass die while it rolls */
+@keyframes dieShake {
+  0%   { transform: rotate(0deg) translateY(0); }
+  25%  { transform: rotate(-12deg) translateY(-6px); }
+  50%  { transform: rotate(8deg) translateY(0); }
+  75%  { transform: rotate(-6deg) translateY(-3px); }
+  100% { transform: rotate(0deg) translateY(0); }
+}
+
 @keyframes toastFade {
   0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   12%  { opacity: 1; transform: translateX(-50%) translateY(0); }

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import Scoreboard         from '../components/Scoreboard'
 import HandEntryModal     from '../components/HandEntryModal'
 import FupModal           from '../components/FupModal'
+import AllPassModal       from '../components/AllPassModal'
 import ManagePlayersModal from '../components/ManagePlayersModal'
 import Settlement         from '../components/Settlement'
 import CombinedNight      from '../components/CombinedNight'
@@ -10,7 +11,7 @@ import Avatar from '../components/Avatar'
 import DealerButton from '../components/DealerButton'
 import { exportData } from '../utils/backup'
 import { nightKey } from '../lib/analytics'
-import { handParticipants } from '../utils/hands'
+import { handParticipants, pendingDoublers, isLeaster, isPass } from '../utils/hands'
 import { getSitOuts, nextActiveDealerIndex } from '../utils/dealer'
 
 const SEAT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th']
@@ -149,6 +150,8 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
   const [showAddPlyr,        setShowAddPlyr]        = useState(false)
   const [showManage,         setShowManage]         = useState(false)
   const [showManualAdd,      setShowManualAdd]      = useState(false)
+  const [showAllPass,        setShowAllPass]        = useState(false)
+  const [editingAllPass,     setEditingAllPass]     = useState(null)
   const [toast,              setToast]              = useState(null)
   const [editingHand,        setEditingHand]        = useState(null)
   const [editingFupHand,     setEditingFupHand]     = useState(null)
@@ -370,6 +373,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
               const h = hands.find(x => x.id === handId)
               if (!h) return
               if (h.handType === 'fup') { setEditingFupHand(h); setShowFup(true) }
+              else if (isLeaster(h) || isPass(h)) setEditingAllPass(h)
               else setEditingHand(h)
             }}
             onDeleteHand={(handId) => deleteHand(session.id, handId).catch(() => {})}
@@ -395,9 +399,23 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
         )}
       </div>
 
-      {/* FAB + Past Hand + F-Up buttons */}
+      {/* FAB + All Pass + Past Hand + F-Up buttons */}
       {!showSettle && (
         <>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowAllPass(true)}
+            title="Everyone passed — roll for a leaster or a doubler"
+            style={{
+              position: 'fixed', bottom: 166, right: 24, zIndex: 100,
+              borderRadius: 20, fontSize: 12, fontWeight: 700,
+              background: 'var(--bg-elevated)',
+              border: '1px solid rgba(99,102,241,0.45)',
+              boxShadow: 'var(--shadow)',
+            }}
+          >
+            All Pass 🎲
+          </button>
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => setShowManualAdd(true)}
@@ -442,6 +460,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           dealerPid={dealerPid}
           sitOutPids={sitOuts}
           lastRoundActive={lastRoundActive}
+          pendingDoublers={pendingDoublers(hands)}
           handNumber={hands.length + 1}
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
@@ -497,6 +516,25 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
             setShowManualAdd(false)
           }}
           onClose={() => setShowManualAdd(false)}
+        />
+      )}
+
+      {/* All pass: roll for a leaster or a doubler, or edit one */}
+      {(showAllPass || editingAllPass) && (
+        <AllPassModal
+          players={editingAllPass ? handParticipants(editingAllPass, sessionPlayers, hands) : activePlayers}
+          sitOutPids={editingAllPass ? (editingAllPass.sitOutPids ?? []) : sitOuts}
+          getPlayer={getPlayer}
+          getDisplayName={getDisplayName}
+          lastRoundActive={lastRoundActive}
+          pendingDoublers={pendingDoublers(hands)}
+          initialValues={editingAllPass ?? undefined}
+          onSubmit={async (data) => {
+            if (editingAllPass) await updateHand(session.id, editingAllPass.id, data)
+            else await addHand(session.id, data)
+            setShowAllPass(false); setEditingAllPass(null)
+          }}
+          onClose={() => { setShowAllPass(false); setEditingAllPass(null) }}
         />
       )}
 

@@ -1,5 +1,5 @@
 import { dollars } from './textTable'
-import { sitOutsOf } from './hands'
+import { sitOutsOf, isPickHand, isLeaster, isPass } from './hands'
 
 /**
  * One player's night across every table they sat at: picks, partner calls and
@@ -18,7 +18,7 @@ export function playerNightStats(sessions, pid) {
     s.hands.forEach(h => {
       const d = h.scores?.[pid] ?? 0
       net += d
-      if (h.handType === 'fup' || sitOutsOf(h).includes(pid)) return   // sat out or no deal
+      if (!isPickHand(h) || sitOutsOf(h).includes(pid)) return   // sat out, F-Up, leaster or all pass
       played++
       if (h.picker === pid) {
         picks++
@@ -79,11 +79,16 @@ export function allTimeStatsUrl(origin, pid) {
 
 // Played = not sitting out and in the hand (every defender pays or collects; a
 // Smith-rule picker/partner can be at 0). Seats joined later load as 0 on old hands.
-const playedHand = (h, pid) => h.handType !== 'fup' && !sitOutsOf(h).includes(pid) &&
+const playedHand = (h, pid) => isPickHand(h) && !sitOutsOf(h).includes(pid) &&
   ((h.scores?.[pid] ?? 0) !== 0 || pid === h.picker || (!h.isLoner && pid === h.partner))
 const delta = (h, pid) => h.scores?.[pid] ?? 0
 
 export const LONER = 'loner'
+
+/** Leasters played and all passes thrown in for a doubler. */
+export function allPassCounts(hands) {
+  return { leasters: hands.filter(isLeaster).length, passes: hands.filter(isPass).length }
+}
 
 /**
  * Picker × partner records: { [picker]: { [partner | LONER]: { wins, losses, net } } }.
@@ -93,7 +98,7 @@ export const LONER = 'loner'
 export function pairMatrix(hands) {
   const m = {}
   hands.forEach(h => {
-    if (h.handType === 'fup' || !h.picker) return
+    if (!isPickHand(h) || !h.picker) return
     const col  = h.isLoner || !h.partner ? LONER : h.partner
     const team = delta(h, h.picker) + (col === LONER ? 0 : delta(h, h.partner))
     const cell = ((m[h.picker] ??= {})[col] ??= { wins: 0, losses: 0, net: 0 })
@@ -116,12 +121,14 @@ export function pairExtremes(matrix) {
 }
 
 /**
- * Money by role per player: { [pid]: { picking, partnering, defending, picks, played, pickRate } }.
- * pickRate = hands picked ÷ hands played (0–100).
+ * Money by role per player: { [pid]: { picking, partnering, defending, leaster, picks, played, pickRate } }.
+ * pickRate = hands picked ÷ hands played (0–100); leasters are their own bucket
+ * and don't count toward hands played.
  */
 export function moneyByRole(hands, players) {
-  const out = Object.fromEntries(players.map(pid => [pid, { picking: 0, partnering: 0, defending: 0, picks: 0, played: 0, pickRate: 0 }]))
+  const out = Object.fromEntries(players.map(pid => [pid, { picking: 0, partnering: 0, defending: 0, leaster: 0, picks: 0, played: 0, pickRate: 0 }]))
   hands.forEach(h => players.forEach(pid => {
+    if (isLeaster(h)) { out[pid].leaster += delta(h, pid); return }
     if (!playedHand(h, pid)) return
     const s = out[pid]
     s.played++
@@ -143,7 +150,7 @@ export function crackScorecard(hands) {
   const players = {}
   let total = 0, worked = 0
   hands.forEach(h => {
-    if (h.handType === 'fup') return
+    if (!isPickHand(h)) return
     const crackers = h.crackers ?? []
     if (!crackers.length && !h.crack) return
     total++

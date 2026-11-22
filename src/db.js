@@ -29,6 +29,12 @@
  * tier = 'FUP', mult = 1 (or the last-round multiplier if it was applied),
  * offender's seat_role = 'picker'. Always check hand_type before treating a
  * row as a normal hand.
+ *
+ * All-pass hands (no CHECK constraint on hand_type, so no schema change):
+ *   'LEASTER' (handType 'leaster') — winner in picker_name ('picker' seat role),
+ *     no partner, points = 0, tier 'LEASTER', mult = the hand's multiplier.
+ *   'PASS' (handType 'pass') — thrown in for a doubler: picker_name = '',
+ *     points = 0, tier 'PASS', mult = 1, every seat_delta 0.
  */
 
 import { supabase } from './supabase.js'
@@ -209,7 +215,29 @@ export function dbRowToHand(row, seatOrder) {
     : outSeats.length ? outSeats
     : row.dealer_name ? [row.dealer_name] : []
 
-  const isFup = String(row.hand_type || '').toLowerCase() === 'fup'
+  const kind = String(row.hand_type || '').toLowerCase()
+  if (kind === 'leaster' || kind === 'pass') {
+    return {
+      id:           row.id,
+      handNumber:   row.hand_number,
+      handType:     kind,
+      picker:       kind === 'leaster' ? (row.picker_name || null) : null,   // leaster winner
+      partner:      null,
+      isLoner:      false,
+      pickerPoints: null,
+      dealerPid:    row.dealer_name || null,
+      crackers:     [],
+      recrackers:   [],
+      blitzes:      {},
+      scores,
+      note:         row.note || null,
+      sitOutPids,
+      doublerCount: row.doubler_count ?? 0,
+      lastRound:    row.last_round    ?? false,
+      ...extra,
+    }
+  }
+  const isFup = kind === 'fup'
   if (isFup) {
     return {
       id:           row.id,
@@ -317,8 +345,45 @@ function fupToDb(hand, sessionId, seatOrder) {
   }
 }
 
+/** Leaster / all-pass hands — see the header for the placeholder columns. */
+function allPassToDb(hand, sessionId, seatOrder) {
+  const isLeaster = hand.handType === 'leaster'
+  return {
+    id:           hand.id,
+    session_id:   sessionId,
+    hand_number:  hand.handNumber,
+    picker_name:  isLeaster ? hand.picker : '',
+    partner_name: null,
+    is_alone:     false,
+    points:       0,
+    tier:         isLeaster ? 'LEASTER' : 'PASS',
+    mult:         isLeaster ? getMultiplier({ doublerCount: hand.doublerCount }) : 1,
+    ...withUnseated(hand,
+      seatOrder.map(pid => hand.scores?.[pid] ?? 0),
+      seatOrder.map(pid => {
+        if (sitOutsOf(hand).includes(pid))        return 'out'
+        if (isLeaster && pid === hand.picker)     return 'picker'
+        return 'opp'
+      })),
+    dealer_name:   hand.dealerPid || null,
+    sit_out:       sitOutsOf(hand),
+    doubler_count: hand.doublerCount ?? 0,
+    last_round:    hand.lastRound || false,
+    shed_clean:    false,
+    no_tricks:     false,
+    smith_rule:    false,
+    cracked_by:    '',
+    recracked_by:  '',
+    blitzes:       {},
+    hand_type:     isLeaster ? 'LEASTER' : 'PASS',
+    offender_id:   null,
+    note:          hand.note || null,
+  }
+}
+
 function handToDb(hand, sessionId, seatOrder) {
   if (hand.handType === 'fup') return fupToDb(hand, sessionId, seatOrder)
+  if (hand.handType === 'leaster' || hand.handType === 'pass') return allPassToDb(hand, sessionId, seatOrder)
 
   const seatDeltas = seatOrder.map(pid => hand.scores?.[pid] ?? 0)
   const seatRoles  = seatOrder.map(pid => {
@@ -417,6 +482,10 @@ export function validateLoadedHand(row, hand, seatOrder) {
   if (hand?.handType === 'fup') {
     if (!hand.offenderId) issues.push(`${label}: no offender recorded`)
     else if (!seatOrder.includes(hand.offenderId)) issues.push(`${label}: offender is not seated in this session`)
+  } else if (hand?.handType === 'leaster') {
+    if (!hand.picker) issues.push(`${label}: leaster has no winner recorded`)
+  } else if (hand?.handType === 'pass') {
+    // all scores 0 — nothing else to check
   } else {
     if (row.hand_type) issues.push(`${label}: unknown hand type "${row.hand_type}"`)
     if (!hand?.picker) issues.push(`${label}: no picker recorded`)

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import Avatar from './Avatar'
-import { sitOutsOf } from '../utils/hands'
-import { pairMatrix, pairExtremes, moneyByRole, crackScorecard, LONER } from '../utils/nightStats'
+import { sitOutsOf, isPickHand, isPass, isLeaster } from '../utils/hands'
+import { pairMatrix, pairExtremes, moneyByRole, crackScorecard, allPassCounts, LONER } from '../utils/nightStats'
 
 const usd  = n => { const r = Math.round(n * 100) / 100; return r > 0 ? `+$${r}` : r < 0 ? `-$${Math.abs(r)}` : '$0' }
 const tone = n => (n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text-muted)')
@@ -58,21 +58,25 @@ function computeStats(session, getPlayer) {
   const combos = {}
   let biggestHand = null
 
+  let pickHands = 0
   hands.forEach(hand => {
-    const { picker, partner, isLoner, pickerPoints, scores, dealerPid } = hand
+    if (isPass(hand)) return   // thrown in: nobody played or paid
+    const pickHand = isPickHand(hand)   // leasters / F-Ups: money only, no picker stats
+    if (!isLeaster(hand)) pickHands++   // pick % over the same hands as before, minus leasters / passes
+    const { picker, partner, isLoner, pickerPoints, scores } = hand
 
     // Modifiers (new + legacy)
     const bv = hand.blitzes ? Object.values(hand.blitzes) : []
     if (bv.some(b => b.black) || hand.blackBlitz || hand.blitz) blackBlitzCount++
     if (bv.some(b => b.red)   || hand.redBlitz   || hand.blitz) redBlitzCount++
     const dc = hand.doublerCount ?? (hand.doubler ? 1 : 0)
-    if (dc > 0) doublerCount++
-    if ((hand.crackers?.length ?? 0) > 0 || hand.crack) {
+    if (dc > 0 && pickHand) doublerCount++
+    if (pickHand && ((hand.crackers?.length ?? 0) > 0 || hand.crack)) {
       crackCount++
       if ((scores?.[picker] ?? 0) < 0) crackPickerLost++
     }
 
-    if (!isLoner && partner && picker) {
+    if (pickHand && !isLoner && partner && picker) {
       const key = [picker, partner].sort().join('|')
       combos[key] = (combos[key] ?? 0) + 1
     }
@@ -84,13 +88,13 @@ function computeStats(session, getPlayer) {
       s.handsPlayed++
       s.totalPts += delta
 
-      if (pid === picker) {
+      if (pickHand && pid === picker) {
         s.asPicker++; s.pickerPts += delta
         s.pickerPointsTotal += (pickerPoints ?? 60)
         if (delta > 0) s.pickerWins++
         else if (delta < 0) s.pickerLosses++
       }
-      if (!isLoner && pid === partner) s.asPartner++
+      if (pickHand && !isLoner && pid === partner) s.asPartner++
 
       const abs = Math.abs(delta)
       if (!biggestHand || abs > Math.abs(biggestHand.delta)) {
@@ -106,7 +110,7 @@ function computeStats(session, getPlayer) {
 
   const matrix = pairMatrix(hands)
   return {
-    streaks, pStats, players, biggestHand, comboList, blackBlitzCount, redBlitzCount, doublerCount, crackCount, crackPickerLost, totalHands: hands.length,
+    streaks, pStats, players, biggestHand, comboList, blackBlitzCount, redBlitzCount, doublerCount, crackCount, crackPickerLost, totalHands: hands.length, pickHands, allPass: allPassCounts(hands),
     matrix, extremes: pairExtremes(matrix), roles: moneyByRole(hands, players), cracks: crackScorecard(hands),
   }
 }
@@ -151,7 +155,8 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
     return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Stats appear after the first hand.</div>
   }
 
-  const { streaks, pStats, players, biggestHand, comboList, crackCount, crackPickerLost, blackBlitzCount, redBlitzCount, doublerCount, totalHands, matrix, extremes, roles, cracks } = stats
+  const { streaks, pStats, players, biggestHand, comboList, crackCount, crackPickerLost, blackBlitzCount, redBlitzCount, doublerCount, totalHands, pickHands, allPass, matrix, extremes, roles, cracks } = stats
+  const showLeaster = allPass.leasters > 0
   // The sidebar on a TV has room for the grid; a phone gets the same records as a list
   const asGrid = typeof window !== 'undefined' && window.innerWidth >= 1080
   const isBest  = (pk, pt) => extremes.best  && extremes.best.picker  === pk && extremes.best.partner  === pt
@@ -204,7 +209,7 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
             const p = getPlayer(pid)
             const s = pStats[pid]
             if (s.asPicker === 0) return null
-            const pickRate = totalHands > 0 ? Math.round((s.asPicker / totalHands) * 100) : 0
+            const pickRate = pickHands > 0 ? Math.round((s.asPicker / pickHands) * 100) : 0   // leasters / passes left out
             const bumpRate = s.asPicker > 0 ? Math.round((s.pickerLosses / s.asPicker) * 100) : 0
             const avgPts   = s.asPicker > 0 ? Math.round(s.pickerPointsTotal / s.asPicker) : null
             return (
@@ -335,15 +340,15 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
 
       {/* Money by role */}
       <Section title="Money by Role">
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) repeat(4, minmax(0,1fr))', gap: '4px 4px', fontSize: 11, alignItems: 'center' }}>
-          {['', 'Pick', 'Partner', 'Defend', 'Pick %'].map(h => (
+        <div style={{ display: 'grid', gridTemplateColumns: `minmax(0,1.4fr) repeat(${showLeaster ? 5 : 4}, minmax(0,1fr))`, gap: '4px 4px', fontSize: 11, alignItems: 'center' }}>
+          {['', 'Pick', 'Partner', 'Defend', ...(showLeaster ? ['Leaster'] : []), 'Pick %'].map(h => (
             <span key={h} style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: h ? 'right' : 'left' }}>{h}</span>
           ))}
-          {players.filter(pid => roles[pid]?.played).map(pid => {
+          {players.filter(pid => roles[pid]?.played || roles[pid]?.leaster).map(pid => {
             const r = roles[pid]
             return [
               <span key={pid + 'n'} style={{ color: 'var(--text-secondary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dn(pid)}</span>,
-              ...[r.picking, r.partnering, r.defending].map((v, i) => (
+              ...[r.picking, r.partnering, r.defending, ...(showLeaster ? [r.leaster] : [])].map((v, i) => (
                 <span key={pid + i} style={{ textAlign: 'right', fontWeight: 700, color: tone(v) }}>{usd(v)}</span>
               )),
               <span key={pid + 'r'} style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{r.pickRate}%</span>,
@@ -377,7 +382,10 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
           {crackCount > 0 && <Fact label="Cracks" value={`${crackCount} total · ${crackPickerLost} worked`} />}
           {(blackBlitzCount > 0 || redBlitzCount > 0) && <Fact label="Blitzes" value={`♠♣ ×${blackBlitzCount}  ♥♦ ×${redBlitzCount}`} />}
           {doublerCount > 0 && <Fact label="Doubled hands" value={`×${doublerCount}`} />}
-          {crackCount === 0 && blackBlitzCount === 0 && redBlitzCount === 0 && doublerCount === 0 && (
+          {(allPass.leasters > 0 || allPass.passes > 0) && (
+            <Fact label="All pass 🎲" value={`Leasters: ${allPass.leasters} · Doublers thrown: ${allPass.passes}`} />
+          )}
+          {crackCount === 0 && blackBlitzCount === 0 && redBlitzCount === 0 && doublerCount === 0 && !allPass.leasters && !allPass.passes && (
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No modifiers yet.</span>
           )}
         </div>

@@ -3,10 +3,20 @@ import { getDisplayName as computeDisplayName } from '../utils/displayName'
 import { supabase, hasSupabase } from '../supabase'
 import * as db from '../db'
 import { nextActiveDealerIndex, ensureActiveDealer, deriveDealerIndex, getSitOuts } from '../utils/dealer'
-import { handParticipants, sitOutsOf } from '../utils/hands'
+import { handParticipants, sitOutsOf, isPickHand } from '../utils/hands'
 
 // Most players at one table: five play each hand, up to two sit out
 const MAX_SEATS = 7
+
+/** Conservation: no hand is saved unless its scores sum to 0. */
+function assertBalanced(hand) {
+  const sum = Object.values(hand.scores ?? {}).reduce((a, d) => a + d, 0)
+  if (Math.abs(sum) > 0.001) {
+    throw new Error(`Scores don't add up to 0 (sum ${sum > 0 ? '+' : ''}${sum}) — hand NOT saved.`)
+  }
+}
+
+const SAVE_LABEL = { fup: 'Save F-Up', leaster: 'Save leaster', pass: 'Save all-pass' }
 
 // ── Default data ──────────────────────────────────────────────────────────────
 const DEFAULT_PLAYERS = [
@@ -604,7 +614,8 @@ export function useStore() {
       sitOutPids,
     }
 
-    await persist(hand.handType === 'fup' ? 'Save F-Up' : 'Save hand',
+    assertBalanced(fullHand)
+    await persist(SAVE_LABEL[hand.handType] ?? 'Save hand',
       () => db.addHand(fullHand, sessionId, sess.players))
     markPlayedHere(sessionId)
 
@@ -655,7 +666,7 @@ export function useStore() {
       ...handData,
       ...unseated,
     }
-    await persist(handData.handType === 'fup' ? 'Update F-Up' : 'Update hand',
+    await persist({ fup: 'Update F-Up', leaster: 'Update leaster', pass: 'Update all-pass' }[handData.handType] ?? 'Update hand',
       () => db.addHand(finalHand, sessionId, sess.players))
 
     update(s => ({
@@ -795,6 +806,7 @@ export function useStore() {
 
     // afterHandNumber === 0: insert before hand #1; afterHandNumber === N: insert after hand #N
     const newHand = { ...handCore, id: crypto.randomUUID(), handNumber: afterHandNumber + 1 }
+    assertBalanced(newHand)
     const renumberedAfter = sess.hands
       .slice(afterHandNumber)
       .map((h, i) => ({ ...h, handNumber: afterHandNumber + 2 + i }))
@@ -926,6 +938,7 @@ export function useStore() {
           if (pid === h.offenderId) s.fupCount++
           return
         }
+        if (!isPickHand(h)) return   // leaster / all-pass: money only, no picker stats
 
         s.handsPlayed++
         if (delta > 0) s.wins++

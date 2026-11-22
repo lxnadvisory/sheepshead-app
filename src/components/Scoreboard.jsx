@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import Avatar from './Avatar'
 import DealerButton from './DealerButton'
-import { sitOutsOf } from '../utils/hands'
+import { sitOutsOf, isLeaster, isPass } from '../utils/hands'
 import HandIcons from './HandIcons'
 
 function fmt(n) {
@@ -23,7 +23,7 @@ function handMult(hand) {
   const bv = hand.blitzes ? Object.values(hand.blitzes) : []
   if (bv.some(b => b.black) || hand.blackBlitz || hand.blitz) m *= 2
   if (bv.some(b => b.red)   || hand.redBlitz   || hand.blitz) m *= 2
-  if (hand.lastRound) m *= 2
+  // The last-round ×2 is already one of the doublers (lastRound is only a label)
   return Math.min(m, 16)
 }
 
@@ -43,6 +43,15 @@ function pill(color) {
 function handBadge(hand) {
   if (hand.handType === 'fup') {
     return <span style={{ fontSize: 13, lineHeight: 1 }} title={hand.note || 'F-Up'}>💩</span>
+  }
+  if (isLeaster(hand)) {
+    const m = handMult(hand)
+    return (
+      <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }} title="Leaster">
+        <span style={{ fontSize: 12, lineHeight: 1 }}>🎲</span>
+        {m > 1 && <span style={pill('var(--warning)')}>×{m}</span>}
+      </div>
+    )
   }
   const flags = []
   if (hand.shedClean)      flags.push(<span key="sc" style={pill('var(--success)')}>SC</span>)
@@ -83,12 +92,37 @@ function HandNumberCell({ hand, onEdit }) {
   )
 }
 
+/** All pass thrown in for a doubler: one slim row (nobody paid). */
+function PassRow({ hand, players, onEdit, onDelete, big }) {
+  const compact = players.length >= 6
+  return (
+    <tr style={{ borderBottom: '1px solid var(--border)', ...(big ? { borderTop: '2px solid var(--warning)' } : {}), background: 'rgba(245,158,11,0.05)' }}>
+      <td style={{ ...tdStyle(true, compact), padding: '4px 2px' }}>
+        <HandNumberCell hand={hand} onEdit={onEdit} />
+      </td>
+      <td colSpan={players.length} style={{ padding: '6px 10px', fontSize: 12, fontWeight: 700, color: 'var(--warning)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+          <span>All pass → Doubler 🎲</span>
+          {big && (
+            <span style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => onEdit?.(hand.id)}>Edit</button>
+              <button className="btn btn-danger btn-sm" onClick={() => onDelete?.(hand.id)}>Delete</button>
+            </span>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 // ── Big card: two <tr> elements for the most recent hand ─────────────────────
 function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, onEdit, onDelete }) {
+  if (isPass(hand)) return <PassRow hand={hand} players={players} onEdit={onEdit} onDelete={onDelete} big />
+  const leaster     = isLeaster(hand)
   const isFup       = hand.handType === 'fup'
-  const schneidered = !isFup && isPickerSchneidered(hand)
+  const schneidered = !isFup && !leaster && isPickerSchneidered(hand)
   const mult        = !isFup ? handMult(hand) : 1
-  const tier        = !isFup ? handTier(hand) : null
+  const tier        = !isFup && !leaster ? handTier(hand) : null
   const accent      = isFup ? 'var(--danger)' : 'var(--primary)'
   const bgInfo      = isFup ? 'rgba(239,68,68,0.06)' : 'rgba(99,102,241,0.07)'
   const bgTiles     = isFup ? 'rgba(239,68,68,0.02)' : 'rgba(99,102,241,0.03)'
@@ -101,7 +135,15 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
         <td colSpan={players.length + 1} style={{ padding: '10px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {isFup ? (
+              {leaster ? (
+                <>
+                  <span style={{ fontSize: 16 }}>🎲</span>
+                  <span style={{ fontWeight: 800 }}>Leaster</span>
+                  <span style={{ color: 'var(--success)', fontWeight: 800, fontSize: 15 }}>{getDisplayName(hand.picker)}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>wins</span>
+                  {mult > 1 && <span style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 800 }}>×{mult}</span>}
+                </>
+              ) : isFup ? (
                 <>
                   <span style={{ fontSize: 16 }}>💩</span>
                   <span style={{ fontWeight: 800 }}>F-Up</span>
@@ -148,6 +190,9 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
           let role = null
           if (isFup) {
             if (pid === hand.offenderId) role = 'OFFENDER'
+          } else if (leaster) {
+            if (pid === hand.picker) role = 'WINNER'
+            else if (isSat)          role = 'SAT OUT'
           } else {
             if (pid === hand.picker)                        role = hand.isLoner ? 'LONER' : 'PICKER'
             else if (!hand.isLoner && pid === hand.partner) role = 'PARTNER'
@@ -161,7 +206,7 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
                   {role && (
                     <span style={{
                       fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em',
-                      color: role === 'OFFENDER' ? 'var(--danger)' : 'var(--text-muted)',
+                      color: role === 'OFFENDER' ? 'var(--danger)' : role === 'WINNER' ? 'var(--success)' : 'var(--text-muted)',
                       whiteSpace: 'nowrap',
                     }}>
                       {role}
@@ -272,7 +317,9 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
           )}
 
           {/* Earlier hands — compact rows, newest first */}
-          {earlierHands.map(hand => (
+          {earlierHands.map(hand => isPass(hand) ? (
+            <PassRow key={hand.id} hand={hand} players={players} onEdit={onEditHand} />
+          ) : (
             <tr key={hand.id} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={tdStyle(true, compact)}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>

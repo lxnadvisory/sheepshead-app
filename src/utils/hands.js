@@ -80,3 +80,23 @@ export function deriveDoublerCount(hand, seatOrder, storedMult) {
   }
   return { doublerCount: 0, warning: `Original multiplier was ×${shown} — check doublers` }
 }
+
+// ── Hand kinds ───────────────────────────────────────────────────────────────
+// 'fup' (F-Up), 'leaster' (all passed, die said leaster) and 'pass' (all passed,
+// thrown in for a doubler) aren't picker hands: picker / partner stats skip them.
+export const isLeaster  = h => h?.handType === 'leaster'
+export const isPass     = h => h?.handType === 'pass'
+export const isPickHand = h => !!h && h.handType !== 'fup' && !isLeaster(h) && !isPass(h)
+
+/**
+ * Doublers waiting for the next hand: one per PASS hand directly before it
+ * (F-Ups in between don't break the run). Derived from the history, never stored.
+ */
+export function pendingDoublers(hands) {
+  let n = 0
+  for (let i = hands.length - 1; i >= 0; i--) {
+    if (isPass(hands[i])) n++
+    else if (hands[i].handType !== 'fup') break
+  }
+  return n
+}

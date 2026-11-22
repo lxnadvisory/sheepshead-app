@@ -66,7 +66,7 @@ function handBadge(hand) {
 // Header row height (avatar 48 + name + padding) + big card (info row + tiles) + N compact rows.
 // The header lost its totals line (they're on the player cards), so the ledger keeps its
 // old overall height and the ~20px it freed goes to hand rows.
-const HEADER_H  = 88
+const HEADER_H  = 90
 const BIG_H     = 168
 const VISIBLE   = 4.5
 const ROW_H     = 44

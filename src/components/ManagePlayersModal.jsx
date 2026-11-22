@@ -36,7 +36,7 @@ function AddTab({ session, allRosterPlayers, getDisplayName, onInsert, onClose }
   const available     = allRosterPlayers.filter(p => !session.players.includes(p.id) || leftPlayers.includes(p.id))
   const isRejoin      = selectedPid && leftPlayers.includes(selectedPid)
   const sitOutNote    = activeCount === 5 ? 'Adding a 6th player: the dealer sits out each hand.'
-    : activeCount === 6 ? 'Adding a 7th player: the dealer and next dealer sit out each hand.'
+    : activeCount === 6 ? "Adding a 7th player: the dealer and the player on the dealer's right sit out each hand."
     : null
 
   if (isFull) {

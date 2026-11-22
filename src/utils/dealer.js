@@ -35,10 +35,22 @@ export function deriveDealerIndex(players, leftPlayers, dealerPid, handCount) {
   return ensureActiveDealer(players, leftPlayers, idx)
 }
 
+/** Index of the previous active (non-left) seat before fromIdx — the dealer's right. */
+export function prevActiveIndex(players, leftPlayers, fromIdx) {
+  const n = players.length
+  if (n === 0) return 0
+  for (let i = 1; i <= n; i++) {
+    const prev = (fromIdx - i + n) % n
+    if (!leftPlayers.includes(players[prev])) return prev
+  }
+  return (fromIdx - 1 + n) % n
+}
+
 /**
  * Who sits out the next hand. Five play every hand: with 6 active the dealer
- * sits out; with 7 the dealer and the next active seat after them. Left
- * players are skipped. Dealer first.
+ * sits out; with 7 the dealer and the active seat on the dealer's right (who
+ * dealt the hand before), so everyone sits out the hand they deal and the one
+ * after. Left players are skipped. Dealer first.
  */
 export function getSitOuts(players, leftPlayers, dealerIndex) {
   const active = players.filter(p => !leftPlayers.includes(p))
@@ -47,7 +59,7 @@ export function getSitOuts(players, leftPlayers, dealerIndex) {
   let idx = ensureActiveDealer(players, leftPlayers, dealerIndex)
   while (out.length < count) {
     out.push(players[idx])
-    idx = nextActiveDealerIndex(players, leftPlayers, idx)
+    idx = prevActiveIndex(players, leftPlayers, idx)
   }
   return out
 }

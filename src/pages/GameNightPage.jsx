@@ -114,7 +114,7 @@ function SetupView({ players, getDisplayName, startSession }) {
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
               {selected.length === 6
                 ? 'With 6 players the dealer sits out each hand.'
-                : 'With 7 players the dealer and the next dealer sit out each hand (everyone sits out two in a row).'}
+                : "With 7 players the dealer and the player on the dealer's right sit out each hand (everyone sits out the hand they deal and the one after)."}
             </div>
           )}
         </div>
@@ -167,7 +167,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
   const activeCount     = activeSeatOrder.length
   // store invariant: dealerIndex always points to a non-left player
   const currentDealer   = sessionPlayers[session.dealerIndex ?? 0]
-  // Next hand's sit-outs: none at 5, the dealer at 6, dealer + next dealer at 7
+  // Next hand's sit-outs: none at 5, the dealer at 6, dealer + the dealer's right at 7
   const sitOuts         = getSitOuts(sessionPlayers, leftPlayers, session.dealerIndex ?? 0)
   const dealerPid       = sitOuts.length ? currentDealer : null
 
@@ -284,7 +284,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
               const total = totals[pid] ?? 0
               const ss    = streakStyle(streaks[pid])
               const isDlr = pid === currentDealer
-              const isOut = sitOuts.includes(pid) && !isDlr   // 7 players: the next dealer sits out too
+              const isOut = sitOuts.includes(pid) && !isDlr   // 7 players: the dealer's right sits out too
               return (
                 <div key={pid} style={{
                   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',

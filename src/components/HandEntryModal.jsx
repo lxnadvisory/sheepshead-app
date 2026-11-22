@@ -490,7 +490,7 @@ export default function HandEntryModal({
                 </select>
               </div>
 
-              {/* Sit-outs: the dealer, plus the next dealer with 7 seated */}
+              {/* Sit-outs: the dealer, plus the player on the dealer's right with 7 seated */}
               <div>
                 <div style={LBL}>{maxSitOuts > 1 ? `Sat out (dealer first, up to ${maxSitOuts})` : 'Dealer (sits out)'}</div>
                 <div className="toggle-group" style={{ flexWrap: 'wrap' }}>

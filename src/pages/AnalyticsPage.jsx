@@ -7,7 +7,7 @@ import { Card, Kpi, Money, PlayerName, ScopeFilter, StreakBadge, WinBar, fmtBase
 import RunningMoney from '../components/analytics/RunningMoney'
 import Heatmap from '../components/analytics/Heatmap'
 import PlayerProfile from './PlayerProfile'
-import { SeatTable, SeatMatrix, SeatFootnote } from '../components/analytics/Sections'
+import { SeatTable, SeatMatrix, SeatFootnote, PartnersTable } from '../components/analytics/Sections'
 import '../components/analytics/analytics.css'
 
 // ── Routing: #stats (dashboard) · #stats/p/<id> (profile) ─────────────────────
@@ -206,6 +206,10 @@ function Dashboard({ a, ctx, scope, setScope }) {
             <SeatTable seats={a.seats} />
             <SeatMatrix seats={a.seats} ids={inView} ctx={ctx} />
             <SeatFootnote seats={a.seats} />
+          </Card>
+
+          <Card title="Partners" aside="real hands only · sorted by $ per partner hand">
+            <PartnersTable a={a} ids={inView} ctx={ctx} />
           </Card>
 
           <Card title="Awards wall" className="an-awards-card">

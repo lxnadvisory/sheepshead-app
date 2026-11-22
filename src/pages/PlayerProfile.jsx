@@ -1,5 +1,5 @@
 import Avatar from '../components/Avatar'
-import { chasing, nightLabel, MIN_TOGETHER } from '../lib/analytics'
+import { chasing, nightLabel, MIN_TOGETHER, MIN_PARTNER_HANDS } from '../lib/analytics'
 import { Card, Money, PlayerName, ScopeFilter, StreakBadge, fmtBase, fmtRate, money } from '../components/analytics/ui'
 import RunningMoney from '../components/analytics/RunningMoney'
 import { RateText, SEAT_LABELS } from '../components/analytics/Sections'
@@ -99,6 +99,26 @@ export default function PlayerProfile({ a, allTime, pid, ctx, scope, setScope, o
         <Tile label="Longest streaks" value={<><span>🔥{p.hot}</span> <span className="an-muted">/</span> <span>🥶{p.cold}</span></>}
           sub="hot / cold hands in a row" />
       </div>
+
+      {p.asPartner && (
+        <Card title="As partner" aside={`rates need ${MIN_PARTNER_HANDS}+ partner hands`}>
+          <div className="an-tiles">
+            <Tile label="Times partner" value={p.asPartner.times}
+              sub={<>partner % <RateText r={p.asPartner.partnerRate} single={single} /> of {p.asPartner.hands} hands</>} />
+            <Tile label="Partner W–L" value={p.asPartner.times ? `${p.asPartner.wins}–${p.asPartner.losses}` : '—'}
+              sub={<>win % <RateText r={p.asPartner.winRate} single={single} /></>} />
+            <Tile label="$ as partner" value={p.asPartner.times ? money(p.asPartner.net) : '—'}
+              color={p.asPartner.net > 0 ? 'var(--success)' : p.asPartner.net < 0 ? 'var(--danger)' : undefined}
+              sub={p.asPartner.perHand == null ? 'never called' : `${money(p.asPartner.perHand, { cents: true })} per partner hand`} />
+            <Tile label="Blitzes as partner" value={<>⚫ {p.asPartner.black} <span className="an-muted">/</span> 🔴 {p.asPartner.red}</>}
+              sub={<>rate <RateText r={p.asPartner.blackRate} single={single} /> / <RateText r={p.asPartner.redRate} single={single} /></>} />
+            <Tile label="Best picker to partner" value={p.asPartner.bestPicker ? <PlayerName pid={p.asPartner.bestPicker.pid} ctx={ctx} size={24} /> : '—'}
+              sub={p.asPartner.bestPicker
+                ? `${p.asPartner.bestPicker.wins}–${p.asPartner.bestPicker.hands - p.asPartner.bestPicker.wins} · ${Math.round(p.asPartner.bestPicker.pct * 100)}%`
+                : `needs ${MIN_TOGETHER}+ hands with one picker`} />
+          </div>
+        </Card>
+      )}
 
       {a.seats.players[pid] && (
         <Card title="By seat" aside={`${a.seats.known} of ${a.seats.total} hands have a recorded dealer`}>

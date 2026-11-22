@@ -8,6 +8,7 @@ import { nightLabel } from '../lib/analytics'
 import { dollars } from '../utils/textTable'
 import { playerNightStats, allTimeStatsUrl } from '../utils/nightStats'
 import InGameStats from '../components/InGameStats'
+import { displayNumbers, dealtCount } from '../utils/hands'
 
 // Public, read-only page for one night, reached by /night/<token> without the
 // PIN. Shows only what the link names: no navigation, no edit controls.
@@ -64,17 +65,18 @@ function handSummary(h, dn) {
 }
 
 function TableHands({ table, session, dn }) {
+  const nums = displayNumbers(session.hands)   // all-pass re-deals don't take a number
   return (
     <details style={{ ...box, marginBottom: 8 }}>
       <summary style={{ padding: '10px 14px', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>
-        {table.label} · {session.hands.length} hands
+        {table.label} · {dealtCount(session.hands)} hands
         <div style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginTop: 2 }}>{session.players.map(dn).join(', ')}</div>
       </summary>
       <div style={{ borderTop: '1px solid var(--border)' }}>
         {session.hands.map(h => (
           <div key={h.id} style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
             <div style={{ fontWeight: 600 }}>
-              <span style={{ color: 'var(--text-muted)', marginRight: 6 }}>#{h.handNumber}</span>{handSummary(h, dn)}
+              {nums.get(h.id) != null && <span style={{ color: 'var(--text-muted)', marginRight: 6 }}>#{nums.get(h.id)}</span>}{handSummary(h, dn)}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', marginTop: 3, fontSize: 12 }}>
               {session.players.map(pid => {
@@ -138,7 +140,7 @@ export default function NightSharePage({ token }) {
   const { tables, players, night } = combineSessions(sessions, dn)
   const ranked    = [...players].sort((a, b) => (night[b] ?? 0) - (night[a] ?? 0))
   const transfers = settleDebts({ ...night })
-  const handCount = sessions.reduce((a, s) => a + s.hands.length, 0)
+  const handCount = sessions.reduce((a, s) => a + dealtCount(s.hands), 0)
   const getPlayer = pid => data.players.find(p => p.id === pid)
 
   const me      = new URLSearchParams(window.location.search).get('p')

@@ -90,7 +90,7 @@ export default function AllPassModal({
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !saving && onClose()}>
       <div className="modal animate-slide-up" style={{ maxWidth: 440 }}>
         <div className="modal-header">
-          <h2 style={{ fontSize: 17, fontWeight: 700 }}>{isEditing ? `Editing Hand #${iv.handNumber} · All Pass` : 'All Pass 🎲'}</h2>
+          <h2 style={{ fontSize: 17, fontWeight: 700 }}>{isEditing ? (iv.handType === 'leaster' ? 'Editing Leaster 🎲' : 'Editing All Pass 🎲') : 'All Pass 🎲'}</h2>
           <button className="btn btn-ghost btn-icon" onClick={onClose} disabled={saving} style={{ fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
 

@@ -212,7 +212,7 @@ export default function CombinedNight({ getPlayer, getDisplayName, endSession, u
               }}>
                 <input type="checkbox" checked={!excluded.has(s.id)} onChange={() => toggle(s.id)} style={{ width: 16, height: 16 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{s.label} · {s.hands.length} hands</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{s.label} · {s.hands.filter(h => h.handType !== 'pass').length} hands</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.players.map(dn).join(', ')}
                   </div>

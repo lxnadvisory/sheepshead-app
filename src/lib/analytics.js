@@ -182,6 +182,9 @@ export function normalize(rows) {
     })
   }
   hands.sort((a, b) => a.sessionOrder - b.sessionOrder || a.num - b.num)
+  // Shown hand number: an all-pass re-deal doesn't take one (num stays the stored order)
+  const shown = {}
+  hands.forEach(h => { h.dnum = h.isPass ? null : (shown[h.sessionId] = (shown[h.sessionId] ?? 0) + 1) })
   return { hands, sessions }
 }
 
@@ -330,7 +333,7 @@ export function computeAnalytics(rows, { scope = 'all', now = new Date() } = {})
       p.hands++
       p.nights.add(h.night)
       p.nightHands[h.night] = (p.nightHands[h.night] ?? 0) + 1
-      const ref = { night: h.night, num: h.num, mult: h.mult, delta: s.delta, sessionId: h.sessionId }
+      const ref = { night: h.night, num: h.dnum ?? h.num, mult: h.mult, delta: s.delta, sessionId: h.sessionId }
       if (s.delta > 0 && (!p.bestHand || s.delta > p.bestHand.delta)) p.bestHand = ref
       if (s.delta < 0 && (!p.worstHand || s.delta < p.worstHand.delta)) p.worstHand = ref
 
@@ -686,7 +689,7 @@ function buildRunning(ids, P, nights, nightHands) {
     const tables = [...new Set(nightHands.map(h => h.sessionId))]
     const xs = nightHands.map((h, i) => ({
       i: i + 1,
-      label: tables.length > 1 ? `T${tables.indexOf(h.sessionId) + 1} #${h.num}` : `#${h.num}`,
+      label: (tables.length > 1 ? `T${tables.indexOf(h.sessionId) + 1} ` : '') + (h.dnum == null ? 'all pass' : `#${h.dnum}`),
     }))
     const series = ids.map(pid => {
       let cum = 0, started = false

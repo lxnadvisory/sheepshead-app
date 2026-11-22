@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import Avatar from './Avatar'
 import DealerButton from './DealerButton'
-import { sitOutsOf, isLeaster, isPass } from '../utils/hands'
+import { sitOutsOf, isLeaster, isPass, displayNumbers } from '../utils/hands'
 import HandIcons from './HandIcons'
 
 function fmt(n) {
@@ -72,11 +72,11 @@ const VISIBLE   = 4.5
 const ROW_H     = 44
 const MAX_H     = HEADER_H + BIG_H + VISIBLE * ROW_H
 
-/** Hnd column: bold hand number plus the ✎ edit button. */
-function HandNumberCell({ hand, onEdit }) {
+/** Hnd column: bold hand number plus the ✎ edit button. num = shown number (none for an all-pass). */
+function HandNumberCell({ hand, num, onEdit }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-      <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>{hand.handNumber}</span>
+      {num != null && <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>{num}</span>}
       {onEdit && (
         <button
           onClick={() => onEdit(hand.id)}
@@ -116,7 +116,7 @@ function PassRow({ hand, players, onEdit, onDelete, big }) {
 }
 
 // ── Big card: two <tr> elements for the most recent hand ─────────────────────
-function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, onEdit, onDelete }) {
+function BigCardRows({ hand, num, players, getPlayer, getDisplayName, leftPlayers, onEdit, onDelete }) {
   if (isPass(hand)) return <PassRow hand={hand} players={players} onEdit={onEdit} onDelete={onDelete} big />
   const leaster     = isLeaster(hand)
   const isFup       = hand.handType === 'fup'
@@ -179,7 +179,7 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
       {/* Player tiles row — one <td> per player column */}
       <tr style={{ borderBottom: `2px solid ${accent}`, background: bgTiles }}>
         <td style={tdStyle(true, compact)}>
-          <HandNumberCell hand={hand} onEdit={onEdit} />
+          <HandNumberCell hand={hand} num={num} onEdit={onEdit} />
         </td>
         {players.map(pid => {
           const p      = getPlayer(pid)
@@ -241,6 +241,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
   if (!players.length) return null
 
   const compact      = players.length >= 6
+  const nums         = displayNumbers(hands)   // all-pass re-deals don't take a number
   const mostRecent   = hands.length > 0 ? hands[hands.length - 1] : null
   const earlierHands = hands.length > 1 ? [...hands.slice(0, -1)].reverse() : []
 
@@ -307,6 +308,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
           {mostRecent && (
             <BigCardRows
               hand={mostRecent}
+              num={nums.get(mostRecent.id)}
               players={players}
               getPlayer={getPlayer}
               getDisplayName={getDisplayName}
@@ -323,7 +325,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
             <tr key={hand.id} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={tdStyle(true, compact)}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  <HandNumberCell hand={hand} onEdit={onEditHand} />
+                  <HandNumberCell hand={hand} num={nums.get(hand.id)} onEdit={onEditHand} />
                   {handBadge(hand)}
                   {hand.pickerPoints != null && (
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 700, lineHeight: 1 }}>

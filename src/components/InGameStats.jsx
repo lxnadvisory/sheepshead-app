@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import Avatar from './Avatar'
-import { sitOutsOf, isPickHand, isPass, isLeaster } from '../utils/hands'
+import { sitOutsOf, isPickHand, isPass, isLeaster, displayNumbers } from '../utils/hands'
 import { pairMatrix, pairExtremes, moneyByRole, crackScorecard, allPassCounts, LONER } from '../utils/nightStats'
 import { blitzItems, blitzRecords } from '../lib/analytics'
 
@@ -99,7 +99,7 @@ function computeStats(session, getPlayer) {
 
       const abs = Math.abs(delta)
       if (!biggestHand || abs > Math.abs(biggestHand.delta)) {
-        biggestHand = { pid, delta, handNumber: hand.handNumber }
+        biggestHand = { pid, delta, handNumber: displayNumbers(hands).get(hand.id) }
       }
     })
   })
@@ -111,7 +111,7 @@ function computeStats(session, getPlayer) {
 
   const matrix = pairMatrix(hands)
   return {
-    streaks, pStats, players, biggestHand, comboList, blackBlitzCount, redBlitzCount, doublerCount, crackCount, crackPickerLost, totalHands: hands.length, pickHands, allPass: allPassCounts(hands),
+    streaks, pStats, players, biggestHand, comboList, blackBlitzCount, redBlitzCount, doublerCount, crackCount, crackPickerLost, totalHands: hands.filter(h => !isPass(h)).length, pickHands, allPass: allPassCounts(hands),
     matrix, extremes: pairExtremes(matrix), roles: moneyByRole(hands, players), cracks: crackScorecard(hands),
     blitz: blitzRecords(blitzItems(hands)).players,
   }

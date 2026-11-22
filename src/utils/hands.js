@@ -100,3 +100,20 @@ export function pendingDoublers(hands) {
   }
   return n
 }
+
+/**
+ * Hand numbers as shown: an all-pass thrown in for a doubler isn't a hand of its
+ * own (the same dealer re-deals), so it gets no number and the re-deal takes it.
+ * Stored hand_number stays sequential (it orders the hands); this is display only.
+ * Returns Map(hand id → number, or null for a pass).
+ */
+export function displayNumbers(hands) {
+  const out = new Map()
+  let n = 0
+  ;[...hands].sort((a, b) => a.handNumber - b.handNumber)
+    .forEach(h => out.set(h.id, isPass(h) ? null : ++n))
+  return out
+}
+
+/** Hands dealt and played, not counting all-pass re-deals. */
+export const dealtCount = hands => hands.filter(h => !isPass(h)).length

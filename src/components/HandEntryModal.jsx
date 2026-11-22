@@ -40,6 +40,7 @@ export default function HandEntryModal({
   currentDealer,      // pid of current dealer
   pendingDoublers = 0, // all-pass hands thrown in right before this one (each ×2)
   maxSitOuts = 1,     // "+ Past Hand": how many can sit out (2 with 7 seated)
+  handLabels,         // "+ Past Hand": shown number of each existing hand (null = all-pass)
   defaultSitOutsFor,  // "+ Past Hand": (insertAfterHandNumber) => default sit-outs
 }) {
   const iv        = initialValues ?? {}
@@ -485,7 +486,7 @@ export default function HandEntryModal({
                 >
                   <option value={0}>Before Hand #1 (start)</option>
                   {Array.from({ length: existingHandCount ?? 0 }, (_, i) => (
-                    <option key={i + 1} value={i + 1}>After Hand #{i + 1}</option>
+                    <option key={i + 1} value={i + 1}>{handLabels?.[i] === null ? `After the all-pass (before hand #${(handLabels.slice(0, i).filter(n => n != null).length) + 1})` : `After Hand #${handLabels?.[i] ?? i + 1}`}</option>
                   ))}
                 </select>
               </div>

@@ -11,7 +11,7 @@ import Avatar from '../components/Avatar'
 import DealerButton from '../components/DealerButton'
 import { exportData } from '../utils/backup'
 import { nightKey } from '../lib/analytics'
-import { handParticipants, pendingDoublers, isLeaster, isPass } from '../utils/hands'
+import { handParticipants, pendingDoublers, isLeaster, isPass, displayNumbers, dealtCount } from '../utils/hands'
 import { getSitOuts, nextActiveDealerIndex } from '../utils/dealer'
 
 const SEAT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th']
@@ -226,7 +226,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 800 }}>The Shed</h1>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 1 }}>{dateStr} · {hands.length} hand{hands.length !== 1 ? 's' : ''}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 1 }}>{dateStr} · {dealtCount(hands)} hand{dealtCount(hands) !== 1 ? 's' : ''}</div>
           <button className="btn btn-ghost btn-sm" onClick={() => setShowDealerPick(true)} title="Change who deals"
             style={{ marginTop: 6, padding: '3px 10px', fontSize: 12, gap: 6, display: 'inline-flex', alignItems: 'center' }}>
             <DealerButton size={16} /> Dealer: {getDisplayName(currentDealer)} ▾
@@ -470,7 +470,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           sitOutPids={sitOuts}
           lastRoundActive={lastRoundActive}
           pendingDoublers={pendingDoublers(hands)}
-          handNumber={hands.length + 1}
+          handNumber={dealtCount(hands) + 1}
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
           currentDealer={currentDealer}
@@ -494,7 +494,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           // hands the dealer column names a seat that actually played
           dealerPid={(editingHand.sitOutPids ?? []).includes(editingHand.dealerPid) ? editingHand.dealerPid : null}
           sitOutPids={editingHand.sitOutPids}
-          handNumber={editingHand.handNumber}
+          handNumber={displayNumbers(hands).get(editingHand.id)}
           initialValues={editingHand}
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
@@ -519,6 +519,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           maxSitOuts={Math.max(1, activeCount - 5)}
           defaultSitOutsFor={sitOutsAfter}
           existingHandCount={hands.length}
+          handLabels={hands.map(h => displayNumbers(hands).get(h.id))}
           sessionTotals={totals}
           sessionPlayerIds={sessionPlayers}
           currentDealer={currentDealer}
@@ -618,7 +619,7 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
             </div>
             <div className="modal-body" style={{ padding: '14px 20px' }}>
               <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.65, margin: 0 }}>
-                Lock and save this session — {hands.length} hand{hands.length !== 1 ? 's' : ''} played. You can reopen it later if needed.
+                Lock and save this session — {dealtCount(hands)} hand{dealtCount(hands) !== 1 ? 's' : ''} played. You can reopen it later if needed.
               </p>
             </div>
             <div className="modal-footer">
@@ -709,8 +710,8 @@ function PastSessionCard({ session, getPlayer, getDisplayName, getSessionTotals,
           <div style={{ fontWeight: 700 }}>{dateStr}</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
             {session.stale
-              ? (session.hands.length ? `${session.hands.length} hands (cached copy)` : 'hands not loaded yet')
-              : `${session.hands.length} hands`} · {session.players.map(pid => getDisplayName(pid)).join(', ')}
+              ? (session.hands.length ? `${dealtCount(session.hands)} hands (cached copy)` : 'hands not loaded yet')
+              : `${dealtCount(session.hands)} hands`} · {session.players.map(pid => getDisplayName(pid)).join(', ')}
           </div>
         </div>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
@@ -844,7 +845,7 @@ export default function GameNightPage({
               <div key={s.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>
-                    Started {new Date(s.date).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · {s.hands.length} hands
+                    Started {new Date(s.date).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · {dealtCount(s.hands)} hands
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.players.map(pid => getDisplayName(pid)).join(', ')}

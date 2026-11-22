@@ -364,7 +364,6 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
             getPlayer={getPlayer}
             getDisplayName={getDisplayName}
             hands={hands}
-            totals={totals}
             dealerPid={currentDealer}
             leftPlayers={leftPlayers}
             onEditHand={(handId) => {

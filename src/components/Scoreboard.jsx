@@ -54,12 +54,34 @@ function handBadge(hand) {
   return flags.length ? <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>{flags}</div> : null
 }
 
-// Header row height (avatar 48 + name + total + padding) + big card (info row + tiles) + N compact rows
-const HEADER_H  = 108
+// Header row height (avatar 48 + name + padding) + big card (info row + tiles) + N compact rows.
+// The header lost its totals line (they're on the player cards), so the ledger keeps its
+// old overall height and the ~20px it freed goes to hand rows.
+const HEADER_H  = 88
 const BIG_H     = 168
-const VISIBLE   = 4
+const VISIBLE   = 4.5
 const ROW_H     = 44
 const MAX_H     = HEADER_H + BIG_H + VISIBLE * ROW_H
+
+/** Hnd column: bold hand number plus the ✎ edit button. */
+function HandNumberCell({ hand, onEdit }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+      <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>{hand.handNumber}</span>
+      {onEdit && (
+        <button
+          onClick={() => onEdit(hand.id)}
+          title="Edit hand"
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-muted)', fontSize: 11, lineHeight: 1,
+            padding: '1px 3px', borderRadius: 3, opacity: 0.65,
+          }}
+        >✎</button>
+      )}
+    </div>
+  )
+}
 
 // ── Big card: two <tr> elements for the most recent hand ─────────────────────
 function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, onEdit, onDelete }) {
@@ -79,7 +101,6 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
         <td colSpan={players.length + 1} style={{ padding: '10px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: 12 }}>#{hand.handNumber}</span>
               {isFup ? (
                 <>
                   <span style={{ fontSize: 16 }}>💩</span>
@@ -115,7 +136,9 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
 
       {/* Player tiles row — one <td> per player column */}
       <tr style={{ borderBottom: `2px solid ${accent}`, background: bgTiles }}>
-        <td style={tdStyle(true, compact)} />
+        <td style={tdStyle(true, compact)}>
+          <HandNumberCell hand={hand} onEdit={onEdit} />
+        </td>
         {players.map(pid => {
           const p      = getPlayer(pid)
           const delta  = hand.scores?.[pid] ?? 0
@@ -162,7 +185,7 @@ function BigCardRows({ hand, players, getPlayer, getDisplayName, leftPlayers, on
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export default function Scoreboard({ players, getPlayer, getDisplayName, hands, totals, dealerPid, leftPlayers = [], onEditHand, onDeleteHand }) {
+export default function Scoreboard({ players, getPlayer, getDisplayName, hands, dealerPid, leftPlayers = [], onEditHand, onDeleteHand }) {
   const scrollRef = useRef(null)
 
   // Scroll the internal container to top whenever a hand is added or removed
@@ -188,7 +211,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
         fontSize: 13,
       }}>
 
-        {/* ── Header: avatar + name + running total ── */}
+        {/* ── Header: avatar + name (totals are on the player cards above) ── */}
         <thead>
           <tr>
             <th style={{ ...thStyle(compact), width: compact ? 34 : undefined }}>Hnd</th>
@@ -196,7 +219,6 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
               const p        = getPlayer(pid)
               const isDealer = pid === dealerPid
               const isLeft   = leftPlayers.includes(pid)
-              const total    = totals[pid] ?? 0
               return (
                 <th key={pid} style={{ ...thStyle(compact), opacity: isLeft ? 0.45 : 1 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
@@ -219,12 +241,6 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
                         }}>Left</span>
                       )}
                     </div>
-                    <span style={{
-                      fontSize: compact ? 15 : 20, fontWeight: 900, lineHeight: 1,
-                      color: total > 0 ? 'var(--success)' : total < 0 ? 'var(--danger)' : 'var(--text-muted)',
-                    }}>
-                      {total > 0 ? `+${total}` : total === 0 ? '0' : total}
-                    </span>
                   </div>
                 </th>
               )
@@ -260,22 +276,7 @@ export default function Scoreboard({ players, getPlayer, getDisplayName, hands, 
             <tr key={hand.id} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={tdStyle(true, compact)}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {hand.handNumber}
-                    </span>
-                    {onEditHand && (
-                      <button
-                        onClick={() => onEditHand(hand.id)}
-                        title="Edit hand"
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: 'var(--text-muted)', fontSize: 11, lineHeight: 1,
-                          padding: '1px 3px', borderRadius: 3, opacity: 0.65,
-                        }}
-                      >✎</button>
-                    )}
-                  </div>
+                  <HandNumberCell hand={hand} onEdit={onEditHand} />
                   {handBadge(hand)}
                   {hand.pickerPoints != null && (
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 700, lineHeight: 1 }}>

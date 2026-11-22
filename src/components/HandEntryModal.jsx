@@ -49,8 +49,10 @@ export default function HandEntryModal({
   const [partner,      setPartner]      = useState(iv.partner      ?? '')
   const [isLoner,      setIsLoner]      = useState(iv.isLoner      ?? false)
   const [pickerPoints, setPickerPoints] = useState(iv.pickerPoints ?? 60)
-  const [shedClean,    setShedClean]    = useState(iv.shedClean    ?? false)
-  // pickerNoTricks is DERIVED — no toggle, no state
+  // Taking every trick / no tricks are their own toggles: 120 or 0 points alone
+  // is a High Win / No Schneider. Edits load them from the stored columns.
+  const [shedClean,      setShedClean]      = useState(iv.shedClean      ?? false)
+  const [pickerNoTricks, setPickerNoTricks] = useState(iv.pickerNoTricks ?? false)
   const [doublerCount, setDoublerCount] = useState(
     isEditing ? (iv.doublerCount ?? (iv.doubler ? 1 : 0)) : isManualAdd ? 0 : (lastRoundActive ? 1 : 0)
   )
@@ -81,7 +83,6 @@ export default function HandEntryModal({
   const [pendingCountdown, setPendingCountdown] = useState(false)
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const pickerNoTricks    = pickerPoints === 0 && !shedClean
   const effectiveDealerPid = isManualAdd ? manualDealerPid : dealerPid
   const effectiveSitOuts   = isManualAdd ? manualSitOuts : (sitOutPids ?? (dealerPid ? [dealerPid] : []))
   const effectivePlayers   = isManualAdd
@@ -114,16 +115,19 @@ export default function HandEntryModal({
   const cycleDoubler = () => setDoublerCount(c => (c + 1) % 5)
 
   // ── Points / specials ──────────────────────────────────────────────────────
+  // Only the buttons change Shed Clean / No Tricks; turning one on sets the points
+  // and turns the other off. Moving the slider never touches them.
   const handleShedClean = () => {
     const next = !shedClean
     setShedClean(next)
-    if (next) setPickerPoints(120)
+    if (next) { setPickerPoints(120); setPickerNoTricks(false) }
   }
-  const handlePointsChange = (val) => {
-    const n = Number(val)
-    setPickerPoints(n)
-    setShedClean(n === 120)
+  const handleNoTricks = () => {
+    const next = !pickerNoTricks
+    setPickerNoTricks(next)
+    if (next) { setPickerPoints(0); setShedClean(false) }
   }
+  const handlePointsChange = (val) => setPickerPoints(Number(val))
   const handleLoner = () => {
     const next = !isLoner
     setIsLoner(next)
@@ -195,7 +199,7 @@ export default function HandEntryModal({
       dealerPid: effectiveDealerPid,
       sitOutPids: effectiveSitOuts,
     })
-  }, [picker, partner, isLoner, pickerPoints, shedClean, smith, doublerCount, crackers, recrackers, blitzes, manualLastRound, effectivePlayers, effectiveDealerPid, effectiveSitOuts.join()]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [picker, partner, isLoner, pickerPoints, shedClean, pickerNoTricks, smith, doublerCount, crackers, recrackers, blitzes, manualLastRound, effectivePlayers, effectiveDealerPid, effectiveSitOuts.join()]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const multiplier    = getMultiplier({ doublerCount, crackers, recrackers, blitzes, lastRound: isManualAdd ? manualLastRound : undefined })
   const tier          = getTierLabel({ shedClean, pickerNoTricks, pickerPoints })
@@ -235,12 +239,9 @@ export default function HandEntryModal({
     } else if (fields.partner) {
       setIsLoner(false); setPartner(fields.partner)
     }
-    // shedClean and points — derive noTricks automatically from points === 0
-    if (fields.shedClean) {
-      setShedClean(true)
-    } else {
-      setShedClean(false)
-    }
+    // "shed clean" / "no tricks" set the toggles; a spoken number only sets points
+    setShedClean(!!fields.shedClean)
+    setPickerNoTricks(!!fields.pickerNoTricks && !fields.shedClean)
     if (fields.pickerPoints !== null) setPickerPoints(fields.pickerPoints)
     if (fields.doublerCount > 0)      setDoublerCount(Math.min(fields.doublerCount, 4))
     if (fields.crackers?.length  > 0) setCrackers(fields.crackers)
@@ -600,7 +601,7 @@ export default function HandEntryModal({
                 </div>
               </div>
 
-              {/* Shed Clean + Smith Rule */}
+              {/* Shed Clean · No Tricks · Smith Rule */}
               <div>
                 <div style={LBL}>Special</div>
                 <div className="toggle-group">
@@ -608,8 +609,17 @@ export default function HandEntryModal({
                     className={`toggle-btn ${shedClean ? 'active-success' : ''}`}
                     onClick={handleShedClean}
                     style={{ padding: '5px 10px', fontSize: 12 }}
+                    title="Picker's side took every trick"
                   >
                     Shed Clean
+                  </button>
+                  <button
+                    className={`toggle-btn ${pickerNoTricks ? 'active-danger' : ''}`}
+                    onClick={handleNoTricks}
+                    style={{ padding: '5px 10px', fontSize: 12 }}
+                    title="Picker's side took no tricks"
+                  >
+                    No Tricks
                   </button>
                   <button
                     className={`toggle-btn ${smith && !isLoner ? 'active-warning' : ''}`}

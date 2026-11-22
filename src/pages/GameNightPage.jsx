@@ -481,7 +481,9 @@ function ActiveGameView({ session, players: allRosterPlayers, getPlayer, getDisp
           players={handParticipants(editingHand, sessionPlayers, hands)}
           getPlayer={getPlayer}
           getDisplayName={getDisplayName}
-          dealerPid={editingHand.dealerPid}
+          // Who sat out comes from the hand's sit-out list; on a few old misaligned
+          // hands the dealer column names a seat that actually played
+          dealerPid={(editingHand.sitOutPids ?? []).includes(editingHand.dealerPid) ? editingHand.dealerPid : null}
           sitOutPids={editingHand.sitOutPids}
           handNumber={editingHand.handNumber}
           initialValues={editingHand}

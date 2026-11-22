@@ -73,7 +73,7 @@ export function deriveDoublerCount(hand, seatOrder, storedMult) {
     // Clean factor, but the stored scores still don't come back (e.g. seats were
     // shifted after the hand was saved) — let the user check rather than rewrite
     const re = calculateHandScores({ ...hand, doublerCount, lastRound: false, dealerPid: null, players: parts })
-    if (parts.some(p => (re[p] ?? 0) !== scoreOf(hand, p))) {
+    if ([...new Set([...parts, ...seatOrder])].some(p => (re[p] ?? 0) !== scoreOf(hand, p))) {   // every seat, sit-outs too
       return { doublerCount, warning: `Stored scores don't match a re-score at ×${shown} — check doublers and seats` }
     }
     return { doublerCount, warning: null }

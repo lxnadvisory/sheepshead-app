@@ -3,7 +3,7 @@ import { hasSupabase } from '../supabase'
 import * as db from '../db'
 import { computeAnalytics, rowsFromStore, nightLabel, MIN_PICKS, MIN_HANDS } from '../lib/analytics'
 import { getDisplayName } from '../utils/displayName'
-import { Card, Kpi, Money, PlayerName, ScopeFilter, StreakBadge, WinBar, fmtBase, fmtRate, money, SERIES, OTHER } from '../components/analytics/ui'
+import { Card, Kpi, Money, PlayerName, ScopeFilter, StreakBadge, WinBar, fmtBase, fmtRate, money, SERIES, OTHER, useSort, rateValue } from '../components/analytics/ui'
 import RunningMoney from '../components/analytics/RunningMoney'
 import Heatmap from '../components/analytics/Heatmap'
 import PlayerProfile from './PlayerProfile'
@@ -228,14 +228,18 @@ function Dashboard({ a, ctx, scope, setScope }) {
 
 function Leaderboard({ a, ctx, ids }) {
   const P = a.players
+  const { rows, th } = useSort(ids, {
+    rank: pid => -P[pid].rank, name: pid => ctx.name(pid), net: pid => P[pid].net, perHand: pid => P[pid].perHand,
+    base: pid => P[pid].base, won: pid => P[pid].nightsWon, streak: pid => P[pid].current,
+  })
   return (
     <div className="an-scroll">
       <table className="an-table an-lead">
         <thead>
-          <tr><th className="an-c">#</th><th>Player</th><th className="an-r">Net $</th><th className="an-r">$/hand</th><th className="an-r">Base</th><th className="an-r">Nights won</th><th className="an-c">Streak</th></tr>
+          <tr>{th('rank', '#', 'an-c')}{th('name', 'Player')}{th('net', 'Net $', 'an-r')}{th('perHand', '$/hand', 'an-r')}{th('base', 'Base', 'an-r')}{th('won', 'Nights won', 'an-r')}{th('streak', 'Streak', 'an-c')}</tr>
         </thead>
         <tbody>
-          {ids.map(pid => {
+          {rows.map(pid => {
             const p = P[pid]
             return (
               <tr key={pid}>
@@ -258,15 +262,20 @@ function Leaderboard({ a, ctx, ids }) {
 function PickingTable({ a, ctx }) {
   const P = a.players, single = a.single
   const ids = a.ranking.filter(pid => P[pid].picks > 0).sort((x, y) => P[y].picks - P[x].picks || P[y].net - P[x].net)
+  const { rows, th } = useSort(ids, {
+    name: pid => ctx.name(pid), picks: pid => P[pid].picks, rate: pid => rateValue(P[pid].pickRate),
+    win: pid => rateValue(P[pid].pickWin), perPick: pid => P[pid].perPick, pts: pid => P[pid].avgPoints,
+    bumped: pid => rateValue(P[pid].bumped), loners: pid => P[pid].loners ? P[pid].lonerWins - (P[pid].loners - P[pid].lonerWins) / 100 : null,
+  })
   if (!ids.length) return <div className="an-empty">No picks yet.</div>
   return (
     <div className="an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Player</th><th className="an-r">Picks</th><th className="an-r">Pick rate</th><th>Win %</th><th className="an-r">$ / pick</th><th className="an-r">Avg pts</th><th className="an-r">Bumped</th><th className="an-r">Loner W–L</th></tr>
+          <tr>{th('name', 'Player')}{th('picks', 'Picks', 'an-r')}{th('rate', 'Pick rate', 'an-r')}{th('win', 'Win %')}{th('perPick', '$ / pick', 'an-r')}{th('pts', 'Avg pts', 'an-r')}{th('bumped', 'Bumped', 'an-r')}{th('loners', 'Loner W–L', 'an-r')}</tr>
         </thead>
         <tbody>
-          {ids.map(pid => {
+          {rows.map(pid => {
             const p = P[pid]
             return (
               <tr key={pid}>
@@ -308,14 +317,19 @@ function DuoLines({ chem, ctx }) {
 
 function DefenseTable({ a, ctx, ids }) {
   const P = a.players, single = a.single
+  const { rows, th } = useSort(ids, {
+    name: pid => ctx.name(pid), bumps: pid => rateValue(P[pid].defense), cracks: pid => P[pid].cracks,
+    crackWin: pid => rateValue(P[pid].crackWin), crackNet: pid => P[pid].cracks ? P[pid].crackNet : null,
+    recracks: pid => P[pid].recracks, blitzes: pid => P[pid].blitzes, fups: pid => P[pid].fups,
+  })
   return (
     <div className="an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Player</th><th className="an-r">Bumps picker</th><th className="an-r">Cracks</th><th className="an-r">Crack win %</th><th className="an-r">Crack $</th><th className="an-r">Re-cracks</th><th className="an-r">Blitzes</th><th className="an-r">F-ups</th></tr>
+          <tr>{th('name', 'Player')}{th('bumps', 'Bumps picker', 'an-r')}{th('cracks', 'Cracks', 'an-r')}{th('crackWin', 'Crack win %', 'an-r')}{th('crackNet', 'Crack $', 'an-r')}{th('recracks', 'Re-cracks', 'an-r')}{th('blitzes', 'Blitzes', 'an-r')}{th('fups', 'F-ups', 'an-r')}</tr>
         </thead>
         <tbody>
-          {ids.map(pid => {
+          {rows.map(pid => {
             const p = P[pid]
             return (
               <tr key={pid}>

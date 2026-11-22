@@ -1,4 +1,4 @@
-import { PlayerName, Money, money } from './ui'
+import { PlayerName, Money, money, useSort, rateValue } from './ui'
 import { MIN_SEAT_PICKS, MIN_PARTNER_HANDS, MIN_BLITZES } from '../../lib/analytics'
 
 // Picking by Seat · Partners · Blitzes. Real hands only (no F-Ups, leasters or
@@ -16,19 +16,37 @@ export function RateText({ r, single }) {
 }
 
 const wl = (w, l) => <span className="an-num">{w}–{l}</span>
+
+/** One seat cell: "5 of 26 · 3–2", plus "· 60%" once there are enough picks to trust it. */
+export function SeatCell({ c, single }) {
+  if (!c) return <span className="an-muted">—</span>
+  return (
+    <span className="an-num" title={`Picked ${c.picks} of ${c.chances} times in this seat${c.picks ? `, won ${c.wins}, lost ${c.picks - c.wins}` : ''}`}>
+      {c.picks} of {c.chances}
+      {c.picks > 0 && <span className="an-muted"> · </span>}
+      {c.picks > 0 && <>{c.wins}–{c.picks - c.wins}</>}
+      {c.picks > 0 && (single || c.winRate.ok) && <span className="an-muted"> · </span>}
+      {c.picks > 0 && (single || c.winRate.ok) && <>{Math.round(c.winRate.pct * 100)}%</>}
+    </span>
+  )
+}
 const cents = n => (n == null ? '—' : money(n, { cents: true }))
 
 // ── Picking by Seat ───────────────────────────────────────────────────────────
 
 export function SeatTable({ seats }) {
+  const { rows, th } = useSort(seats.table, {
+    seat: t => -t.pos, hands: t => t.hands, rate: t => rateValue(t.pickRate), wl: t => t.picks ? t.wins - (t.picks - t.wins) / 100 : null,
+    win: t => rateValue(t.pickWin), perPick: t => t.perPick, loners: t => t.loners,
+  })
   return (
     <div className="an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Seat</th><th className="an-r">Hands</th><th className="an-r">Pick %</th><th className="an-r">Picker W–L</th><th className="an-r">Win %</th><th className="an-r">$ / pick</th><th className="an-r">Loners</th></tr>
+          <tr>{th('seat', 'Seat')}{th('hands', 'Hands', 'an-r')}{th('rate', 'Pick %', 'an-r')}{th('wl', 'Picker W–L', 'an-r')}{th('win', 'Win %', 'an-r')}{th('perPick', '$ / pick', 'an-r')}{th('loners', 'Loners', 'an-r')}</tr>
         </thead>
         <tbody>
-          {seats.table.map(t => (
+          {rows.map(t => (
             <tr key={t.pos}>
               <td><span className="an-num">{t.pos}</span> <span className="an-muted">· {SEAT_LABELS[t.pos]}</span></td>
               <td className="an-r an-num">{t.hands}</td>
@@ -46,13 +64,17 @@ export function SeatTable({ seats }) {
 }
 
 export function SeatMatrix({ seats, ids, ctx }) {
-  const rows = ids.filter(pid => seats.players[pid])
+  const withSeats = ids.filter(pid => seats.players[pid])
+  const seatPicks = n => pid => seats.players[pid].cells[n]?.picks ?? null
+  const { rows, th } = useSort(withSeats, {
+    name: pid => ctx.name(pid), 1: seatPicks(1), 2: seatPicks(2), 3: seatPicks(3), 4: seatPicks(4), 5: seatPicks(5),
+  })
   if (!rows.length) return <div className="an-empty">No hands with a recorded dealer yet.</div>
   return (
     <div className="an-scroll">
       <table className="an-table an-seat-matrix">
         <thead>
-          <tr><th>Player</th>{[1, 2, 3, 4, 5].map(n => <th key={n} className="an-c" title={SEAT_LABELS[n]}>{n}</th>)}</tr>
+          <tr>{th('name', 'Player')}{[1, 2, 3, 4, 5].map(n => th(n, <>{n}<div className="an-th-sub">{SEAT_LABELS[n]}</div></>, 'an-c', `Sort by picks in seat ${n} (${SEAT_LABELS[n]})`))}</tr>
         </thead>
         <tbody>
           {rows.map(pid => {
@@ -65,12 +87,7 @@ export function SeatMatrix({ seats, ids, ctx }) {
                   const cls = n === sp.best ? 'an-seat-best' : n === sp.worst ? 'an-seat-worst' : ''
                   return (
                     <td key={n} className={`an-c ${cls}`} title={n === sp.best ? 'Best seat' : n === sp.worst ? 'Worst seat' : undefined}>
-                      {c ? (
-                        <span className="an-num">
-                          {c.picks}/{c.chances}
-                          {c.picks > 0 && <> · <RateText r={c.winRate} single={seats.single} /></>}
-                        </span>
-                      ) : <span className="an-muted">—</span>}
+                      <SeatCell c={c} single={seats.single} />
                     </td>
                   )
                 })}
@@ -87,7 +104,8 @@ export function SeatFootnote({ seats }) {
   return (
     <div className="an-footnote">
       Position stats start from hands where the dealer was recorded ({seats.known} of {seats.total} hands).
-      Cells read picks / chances · win %; best and worst seats need {MIN_SEAT_PICKS}+ picks there.
+      Each cell: <strong>times picked of times in that seat · won–lost</strong>, plus the win % once there are {MIN_SEAT_PICKS}+ picks
+      (e.g. "5 of 26 · 3–2 · 60%" = sat there 26 times, picked 5, won 3). Green = best seat, red = worst, by win %.
     </div>
   )
 }
@@ -96,16 +114,23 @@ export function SeatFootnote({ seats }) {
 
 export function PartnersTable({ a, ids, ctx }) {
   const P = a.players, single = a.single
-  const rows = ids.filter(pid => P[pid].asPartner?.hands > 0)
+  const base = ids.filter(pid => P[pid].asPartner?.hands > 0)
     .sort((x, y) => (P[y].asPartner.perHandOk ? P[y].asPartner.perHand : -1e9) - (P[x].asPartner.perHandOk ? P[x].asPartner.perHand : -1e9) || P[y].asPartner.times - P[x].asPartner.times)
+  const s = pid => P[pid].asPartner
+  const { rows, th } = useSort(base, {
+    name: pid => ctx.name(pid), hands: pid => s(pid).hands, times: pid => s(pid).times, rate: pid => rateValue(s(pid).partnerRate),
+    wl: pid => s(pid).times ? s(pid).wins - s(pid).losses / 100 : null, win: pid => rateValue(s(pid).winRate),
+    net: pid => s(pid).times ? s(pid).net : null, perHand: pid => (s(pid).perHandOk || single) ? s(pid).perHand : null,
+    black: pid => s(pid).black, red: pid => s(pid).red, best: pid => s(pid).bestPicker ? ctx.name(s(pid).bestPicker.pid) : null,
+  })
   return (
     <div className="an-scroll">
       <table className="an-table">
         <thead>
           <tr>
-            <th>Player</th><th className="an-r">Hands</th><th className="an-r">Partner</th><th className="an-r">Partner %</th>
-            <th className="an-r">W–L</th><th className="an-r">Win %</th><th className="an-r">$ as partner</th><th className="an-r">$ / hand</th>
-            <th className="an-r">⚫ Blitz</th><th className="an-r">🔴 Blitz</th><th>Best picker</th>
+            {th('name', 'Player')}{th('hands', 'Hands', 'an-r')}{th('times', 'Partner', 'an-r')}{th('rate', 'Partner %', 'an-r')}
+            {th('wl', 'W–L', 'an-r')}{th('win', 'Win %', 'an-r')}{th('net', '$ as partner', 'an-r')}{th('perHand', '$ / hand', 'an-r')}
+            {th('black', '⚫ Blitz', 'an-r')}{th('red', '🔴 Blitz', 'an-r')}{th('best', 'Best picker')}
           </tr>
         </thead>
         <tbody>
@@ -168,18 +193,24 @@ export function BlitzSummary({ blitz, single }) {
 }
 
 export function BlitzTable({ blitz, ids, ctx, single }) {
-  const rows = ids.filter(pid => blitz.players[pid])
+  const base = ids.filter(pid => blitz.players[pid])
     .sort((x, y) => blitz.players[y].net - blitz.players[x].net)
+  const b = (pid, c) => blitz.players[pid][c]
+  const col = c => ({
+    [`${c}N`]: pid => b(pid, c).count, [`${c}Rate`]: pid => rateValue(b(pid, c).rate),
+    [`${c}Win`]: pid => rateValue(b(pid, c).success), [`${c}Net`]: pid => b(pid, c).count ? b(pid, c).net : null,
+  })
+  const { rows, th } = useSort(base, { name: pid => ctx.name(pid), ...col('black'), ...col('red'), total: pid => blitz.players[pid].net })
   if (!rows.length) return <div className="an-empty">No blitzes yet.</div>
   return (
     <div className="an-scroll">
       <table className="an-table">
         <thead>
           <tr>
-            <th>Player</th>
-            <th className="an-r">⚫ #</th><th className="an-r">⚫ rate</th><th className="an-r">⚫ success</th><th className="an-r">⚫ $</th>
-            <th className="an-r">🔴 #</th><th className="an-r">🔴 rate</th><th className="an-r">🔴 success</th><th className="an-r">🔴 $</th>
-            <th className="an-r">Total $</th>
+            {th('name', 'Player')}
+            {th('blackN', '⚫ #', 'an-r')}{th('blackRate', '⚫ rate', 'an-r')}{th('blackWin', '⚫ success', 'an-r')}{th('blackNet', '⚫ $', 'an-r')}
+            {th('redN', '🔴 #', 'an-r')}{th('redRate', '🔴 rate', 'an-r')}{th('redWin', '🔴 success', 'an-r')}{th('redNet', '🔴 $', 'an-r')}
+            {th('total', 'Total $', 'an-r')}
           </tr>
         </thead>
         <tbody>

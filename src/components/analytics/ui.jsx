@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import Avatar from '../Avatar'
 import { streakStyle } from '../InGameStats'
 import { nightLabel } from '../../lib/analytics'
@@ -99,6 +100,50 @@ export function Kpi({ label, value, sub }) {
 }
 
 export const fmtBase = n => signed(n, Number.isInteger(Math.round(n * 100) / 100) ? 0 : 1)
+
+/** Sort value for a rate: its % once the sample minimum is met, else null (sorts last). */
+export const rateValue = r => (r && r.den > 0 && r.ok ? r.pct : null)
+
+/**
+ * Sortable table: tap a header to sort by it (numbers high → low, names A → Z),
+ * tap again to reverse. Rows with no value (—, or a rate below its sample
+ * minimum) always go last. Until a header is tapped the rows keep their order.
+ *   cols: { key: row => number | string | null }
+ * Returns { rows, th } — th(key, label, className, title) renders the header cell.
+ */
+export function useSort(rows, cols) {
+  const [sort, setSort] = useState(null)   // { key, dir: 'asc' | 'desc' }
+  const sorted = useMemo(() => {
+    const get = sort && cols[sort.key]
+    if (!get) return rows
+    const missing = v => v == null || (typeof v === 'number' && Number.isNaN(v))
+    return rows.map((r, i) => ({ r, i, v: get(r) }))
+      .sort((a, b) => {
+        if (missing(a.v) || missing(b.v)) return (missing(a.v) - missing(b.v)) || a.i - b.i
+        const d = typeof a.v === 'string' ? a.v.localeCompare(b.v) : a.v - b.v
+        return (sort.dir === 'asc' ? d : -d) || a.i - b.i
+      })
+      .map(x => x.r)
+  }, [rows, sort]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggle = key => setSort(s => {
+    if (s?.key === key) return { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+    const sample = rows.map(cols[key]).find(v => v != null)
+    return { key, dir: typeof sample === 'string' ? 'asc' : 'desc' }
+  })
+
+  const th = (key, label, className = '', title) => {
+    const on = sort?.key === key
+    return (
+      <th key={key} className={`${className} an-sortable ${on ? 'on' : ''}`} title={title ?? 'Sort'}
+        aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        onClick={() => toggle(key)}>
+        {label}<span className="an-sort-arrow" aria-hidden>{on ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</span>
+      </th>
+    )
+  }
+  return { rows: sorted, th }
+}
 
 /** Time-range filter: All-time · Last night · Pick a night. */
 export function ScopeFilter({ scope, setScope, nights, compact = false }) {

@@ -31,6 +31,7 @@
 .an-footnote { margin-top: 0.7em; font-size: 0.8em; color: var(--text-secondary); line-height: 1.45; }
 .an-seat-matrix { margin-top: 1em; }
 .an-seat-matrix td { white-space: nowrap; }
+.an-th-sub { font-size: 0.75em; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text-secondary); opacity: 0.8; }
 .an-seat-best  { background: rgba(34, 197, 94, 0.14); border-radius: 6px; }
 .an-seat-worst { background: rgba(239, 68, 68, 0.14); border-radius: 6px; }
 .an-best-picker { display: inline-flex; align-items: center; gap: 0.4em; white-space: nowrap; }
@@ -231,3 +232,9 @@
 .an-chase-text { font-size: 0.84em; color: var(--text-secondary); }
 .an-chase-bar { height: 0.4em; border-radius: 999px; background: rgba(57,135,229,0.18); overflow: hidden; }
 .an-chase-bar span { display: block; height: 100%; background: #3987e5; }
+
+/* Sortable table headers */
+.an-sortable { cursor: pointer; user-select: none; }
+.an-sortable:hover { color: var(--text-primary); }
+.an-sortable.on { color: var(--text-primary); }
+.an-sort-arrow { font-size: 0.8em; }

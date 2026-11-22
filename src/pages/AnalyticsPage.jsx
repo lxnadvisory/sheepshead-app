@@ -7,6 +7,7 @@ import { Card, Kpi, Money, PlayerName, ScopeFilter, StreakBadge, WinBar, fmtBase
 import RunningMoney from '../components/analytics/RunningMoney'
 import Heatmap from '../components/analytics/Heatmap'
 import PlayerProfile from './PlayerProfile'
+import { SeatTable, SeatMatrix, SeatFootnote } from '../components/analytics/Sections'
 import '../components/analytics/analytics.css'
 
 // ── Routing: #stats (dashboard) · #stats/p/<id> (profile) ─────────────────────
@@ -200,6 +201,12 @@ function Dashboard({ a, ctx, scope, setScope }) {
               <RecordBook r={a.records} ctx={ctx} />
             </Card>
           </div>
+
+          <Card title="Picking by Seat" aside="1 = first to pick after the dealer">
+            <SeatTable seats={a.seats} />
+            <SeatMatrix seats={a.seats} ids={inView} ctx={ctx} />
+            <SeatFootnote seats={a.seats} />
+          </Card>
 
           <Card title="Awards wall" className="an-awards-card">
             <AwardsWall awards={a.awards} ctx={ctx} />

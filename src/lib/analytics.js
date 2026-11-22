@@ -19,6 +19,9 @@ export const MIN_PICKS    = 10  // all-time minimum for pick stats
 export const MIN_HANDS    = 10  // all-time minimum for other rates
 export const MIN_TOGETHER = 3   // chemistry / best partner / duos
 export const MIN_LONERS   = 2   // Lone Wolf
+export const MIN_SEAT_PICKS    = 5    // a seat's win % / best-worst seat
+export const MIN_PARTNER_HANDS = 10   // partner rates and Best Sidekick
+export const MIN_BLITZES       = 5    // blitz success %
 
 const EPS      = 0.001
 const WIN_TIERS = new Set(['SHED_CLEAN', 'HIGH_WIN', 'WIN'])
@@ -152,6 +155,8 @@ export function normalize(rows) {
     const tier = isFup ? 'FUP' : normalizeTier(row.tier)
     const blitzers = Object.entries(row.blitzes ?? {})
       .filter(([, b]) => b && (b.black || b.red)).map(([pid]) => pid)
+    const blitzColors = isFup ? {} : Object.fromEntries(Object.entries(row.blitzes ?? {})
+      .filter(([, b]) => b && (b.black || b.red)).map(([pid, b]) => [pid, { black: !!b.black, red: !!b.red }]))
 
     hands.push({
       id: row.id,
@@ -168,6 +173,7 @@ export function normalize(rows) {
       crackers: isFup ? [] : splitIds(row.cracked_by),
       recrackers: isFup ? [] : splitIds(row.recracked_by),
       blitzers: isFup ? [] : blitzers,
+      blitzColors,
       offender: isFup ? (row.offender_id || row.picker_name || null) : null,
       seats,
       unseated: deltas.slice(order.length).map(d => Number(d) || 0),
@@ -478,6 +484,14 @@ export function computeAnalytics(rows, { scope = 'all', now = new Date() } = {})
     worstDuo: maxBy(duos, d => (1 - d.pct) * 1000 + d.hands),
   }
 
+  // Seats, partners, blitzes — real hands only (no F-Ups, leasters, passes)
+  const real = hands.filter(h => !h.isFup && !h.special)
+  const minSeat = single ? 0 : MIN_SEAT_PICKS
+  const seats = seatStats(real, ids, minSeat, single)
+  const partnerMin = single ? 0 : MIN_PARTNER_HANDS
+  ids.forEach(pid => { players[pid].asPartner = partnerStats(real, pid, players[pid].hands, pairs, partnerMin, single) })
+  const blitz = blitzRecords(blitzItems(real), Object.fromEntries(ids.map(pid => [pid, players[pid].hands])), real.length, single ? 0 : MIN_BLITZES)
+
   const fupsRecent = recentFups(norm, now)
   const awards = computeAwards(ids, players, chemistry, fupsRecent)
 
@@ -501,7 +515,7 @@ export function computeAnalytics(rows, { scope = 'all', now = new Date() } = {})
 
   return {
     scope: single ? night : 'all', single, night, allNights, nights,
-    kpis, players, ranking, running, records, chemistry, awards, nightResults,
+    kpis, players, ranking, running, records, chemistry, awards, nightResults, seats, blitz,
     groupPickRate: totHands ? totPicks / totHands : null,
     check, misaligned,
   }
@@ -511,6 +525,151 @@ function maxBy(arr, f) {
   let best = null, bv = -Infinity
   for (const x of arr) { const v = f(x); if (v > bv) { bv = v; best = x } }
   return best
+}
+
+// ── Picking by seat ───────────────────────────────────────────────────────────
+
+/**
+ * Table: one row per position 1–5 over hands with a known dealer.
+ * Players: pid -> { cells: {pos: {chances, picks, wins, net, winRate}}, best, worst }.
+ */
+function seatStats(real, ids, minSeat, single) {
+  const table = [1, 2, 3, 4, 5].map(pos => ({ pos, hands: 0, picks: 0, wins: 0, net: 0, loners: 0 }))
+  const cells = {}
+  let known = 0
+  for (const h of real) {
+    const pos = positionsForHand(h, h.seatOrder)
+    if (!pos) continue
+    known++
+    table.forEach(t => { t.hands++ })
+    for (const [pid, n] of Object.entries(pos)) {
+      const c = ((cells[pid] ??= {})[n] ??= { chances: 0, picks: 0, wins: 0, net: 0 })
+      c.chances++
+      if (pid === h.picker) {
+        const d = h.seats.find(s => s.pid === pid)?.delta ?? 0
+        c.picks++; c.net += d; if (h.pickerWon) c.wins++
+        const t = table[n - 1]
+        t.picks++; t.net += d; if (h.pickerWon) t.wins++; if (h.isLoner) t.loners++
+      }
+    }
+  }
+  const rows = table.map(t => ({
+    ...t, net: r2(t.net),
+    pickRate: rate(t.picks, t.hands, true),
+    pickWin:  rate(t.wins, t.picks, t.picks >= minSeat),
+    perPick:  t.picks ? t.net / t.picks : null,
+  }))
+  const players = {}
+  ids.forEach(pid => {
+    const mine = cells[pid]
+    if (!mine) return
+    const out = {}
+    for (const [n, c] of Object.entries(mine)) out[n] = { ...c, net: r2(c.net), winRate: rate(c.wins, c.picks, c.picks >= minSeat) }
+    // Best / worst seat by win %, only seats that meet the minimum (and only if 2+ do)
+    const ok = Object.entries(out).filter(([, c]) => c.winRate.ok && c.picks > 0)
+    const best  = ok.length > 1 ? maxBy(ok, ([, c]) => c.winRate.pct * 1000 + c.picks)[0] : null
+    const worst = ok.length > 1 ? maxBy(ok, ([, c]) => (1 - c.winRate.pct) * 1000 + c.picks)[0] : null
+    players[pid] = { cells: out, best: best && Number(best), worst: worst && worst !== best ? Number(worst) : null }
+  })
+  return { table: rows, players, known, total: real.length, single }
+}
+
+// ── Partners ──────────────────────────────────────────────────────────────────
+
+function partnerStats(real, pid, handsPlayed, pairs, min, single) {
+  let times = 0, wins = 0, net = 0, black = 0, red = 0
+  for (const h of real) {
+    if (h.isLoner || h.partner !== pid) continue
+    const s = h.seats.find(x => x.pid === pid)
+    if (!s || s.role === 'out') continue
+    times++; net += s.delta
+    if (h.pickerWon) wins++
+    if (h.blitzColors[pid]?.black) black++
+    if (h.blitzColors[pid]?.red) red++
+  }
+  const enough = times >= min
+  const picks = Object.values(pairs).filter(x => x.partner === pid && x.hands >= MIN_TOGETHER)
+    .map(x => ({ pid: x.picker, hands: x.hands, wins: x.wins, pct: x.wins / x.hands }))
+  const bestPicker = maxBy(picks, x => x.pct * 1000 + x.hands)
+  return {
+    hands: handsPlayed, times, wins, losses: times - wins, net: r2(net),
+    partnerRate: rate(times, handsPlayed, single || handsPlayed >= MIN_HANDS),
+    winRate:     rate(wins, times, enough),
+    perHand:     times ? net / times : null,
+    perHandOk:   times > 0 && enough,
+    black, red,
+    blackRate: rate(black, times, enough),
+    redRate:   rate(red, times, enough),
+    bestPicker,
+  }
+}
+
+// ── Blitzes ───────────────────────────────────────────────────────────────────
+
+/**
+ * One item per blitz on a real hand: { pid, color: 'black'|'red', delta, role:
+ * 'picker'|'partner'|'defender', mult, cracked }. A blitz succeeds when the
+ * blitzer's side wins the hand (blitzer delta > 0).
+ * Accepts normalized hands (seats) or app hands (scores, picker / partner).
+ */
+export function blitzItems(hands) {
+  const items = []
+  for (const h of hands) {
+    const kind = String(h.handType ?? '').toLowerCase()
+    if (h.isFup || h.special || ['fup', 'leaster', 'pass'].includes(kind)) continue
+    const colors = h.blitzColors ?? Object.fromEntries(Object.entries(h.blitzes ?? {})
+      .filter(([, b]) => b && (b.black || b.red)).map(([pid, b]) => [pid, { black: !!b.black, red: !!b.red }]))
+    const out = new Set(h.sitOutPids ?? h.sitOut ?? [])
+    for (const [pid, b] of Object.entries(colors)) {
+      const seat  = h.seats?.find(s => s.pid === pid)
+      if (seat?.role === 'out' || out.has(pid)) continue
+      const delta = seat ? seat.delta : (h.scores?.[pid] ?? 0)
+      const role  = pid === h.picker ? 'picker' : (!h.isLoner && pid === h.partner) ? 'partner' : 'defender'
+      const mult  = h.mult ?? null
+      const cracked = (h.crackers?.length ?? 0) > 0
+      for (const color of ['black', 'red']) if (b[color]) items.push({ pid, color, delta, role, mult, cracked })
+    }
+  }
+  return items
+}
+
+/**
+ * Black and red blitz records, per player and table-wide.
+ * handsPlayed: pid -> real hands played (for the blitz rate); tableHands: real
+ * hands (the table rate is the share of hands with that blitz).
+ */
+export function blitzRecords(items, handsPlayed = {}, tableHands = 0, min = MIN_BLITZES) {
+  const rec = (list, den) => {
+    const wins = list.filter(i => i.delta > 0).length
+    const losses = list.filter(i => i.delta < 0).length
+    const byRole = Object.fromEntries(['picker', 'partner', 'defender'].map(role => {
+      const l = list.filter(i => i.role === role), w = l.filter(i => i.delta > 0).length
+      return [role, { count: l.length, wins: w, success: rate(w, l.length, l.length >= min) }]
+    }))
+    const cr = list.filter(i => i.cracked), crW = cr.filter(i => i.delta > 0).length
+    const mults = list.map(i => i.mult).filter(m => m > 0)
+    return {
+      count: list.length,
+      rate: rate(list.length, den, den > 0),
+      wins, losses,
+      success: rate(wins, list.length, list.length >= min),
+      net: r2(list.reduce((a, i) => a + i.delta, 0)),
+      avgMult: mults.length ? mults.reduce((a, m) => a + m, 0) / mults.length : null,
+      byRole,
+      cracked: { count: cr.length, wins: crW, success: rate(crW, cr.length, cr.length >= min) },
+    }
+  }
+  const pids = [...new Set(items.map(i => i.pid))]
+  const players = Object.fromEntries(pids.map(pid => {
+    const mine = items.filter(i => i.pid === pid)
+    const black = rec(mine.filter(i => i.color === 'black'), handsPlayed[pid] ?? 0)
+    const red   = rec(mine.filter(i => i.color === 'red'),   handsPlayed[pid] ?? 0)
+    return [pid, { black, red, net: r2(black.net + red.net) }]
+  }))
+  return {
+    table: { black: rec(items.filter(i => i.color === 'black'), tableHands), red: rec(items.filter(i => i.color === 'red'), tableHands) },
+    players,
+  }
 }
 
 /** Longest streak run, plus everyone else who matched it. */
@@ -568,6 +727,7 @@ function recentFups(norm, now) {
 
 const pct = r => r?.pct == null ? '' : `${Math.round(r.pct * 100)}%`
 const money = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}$${Math.abs(Math.round(n * 100) / 100)}`
+const cents = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}$${Math.abs(n).toFixed(2)}`
 
 /**
  * Each award: { id, title, emoji, winners: [pid], reason, metric: pid -> number|null, better: 'high' }
@@ -599,6 +759,12 @@ function computeAwards(ids, P, chem, fupsRecent) {
     { id: 'fup', title: 'F-Up of the Month', emoji: '💩',
       metric: pid => fupsRecent[pid] || null,
       reason: v => `${v} F-up${v === 1 ? '' : 's'} in the last 30 days`, unit: v => `${v} F-ups` },
+    { id: 'sidekick', title: 'Best Sidekick', emoji: '🤝',
+      metric: pid => P[pid].asPartner?.times >= MIN_PARTNER_HANDS ? P[pid].asPartner.perHand : null,
+      reason: (v, pid) => `${cents(v)} per hand as partner over ${P[pid].asPartner.times} hands`,
+      unit: v => `${cents(v)}/hand`,
+      need: pid => (P[pid].asPartner?.times ?? 0) < MIN_PARTNER_HANDS
+        ? `${MIN_PARTNER_HANDS - (P[pid].asPartner?.times ?? 0)} more partner hands to qualify` : null },
     { id: 'hot', title: 'Hot Hand', emoji: '🔥',
       metric: pid => P[pid].hot >= STREAK_MIN ? P[pid].hot : null,
       reason: v => `${v} winning hands in a row`, unit: v => `${v} in a row` },

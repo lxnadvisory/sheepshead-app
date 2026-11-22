@@ -26,6 +26,21 @@
   letter-spacing: 0.01em;
 }
 .an-muted { color: var(--text-secondary); opacity: 0.7; }
+
+/* Picking by Seat · Partners · Blitzes */
+.an-footnote { margin-top: 0.7em; font-size: 0.8em; color: var(--text-secondary); line-height: 1.45; }
+.an-seat-matrix { margin-top: 1em; }
+.an-seat-matrix td { white-space: nowrap; }
+.an-seat-best  { background: rgba(34, 197, 94, 0.14); border-radius: 6px; }
+.an-seat-worst { background: rgba(239, 68, 68, 0.14); border-radius: 6px; }
+.an-best-picker { display: inline-flex; align-items: center; gap: 0.4em; white-space: nowrap; }
+.an-blitz-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8em; margin-bottom: 1em; }
+.an-blitz-side { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75em 0.9em; min-width: 0; }
+.an-blitz-label { font-size: 0.78em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-secondary); }
+.an-blitz-count { font-size: 2em; line-height: 1.15; }
+.an-blitz-facts { display: flex; flex-direction: column; gap: 0.15em; font-size: 0.85em; }
+.an-mini { width: 100%; }
+@media (max-width: 560px) { .an-blitz-summary { grid-template-columns: 1fr; } }
 .an-empty { color: var(--text-secondary); padding: 2em 0; text-align: center; }
 .an-loading { padding: 6em 0; }
 

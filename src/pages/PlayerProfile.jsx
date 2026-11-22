@@ -2,6 +2,7 @@ import Avatar from '../components/Avatar'
 import { chasing, nightLabel, MIN_TOGETHER } from '../lib/analytics'
 import { Card, Money, PlayerName, ScopeFilter, StreakBadge, fmtBase, fmtRate, money } from '../components/analytics/ui'
 import RunningMoney from '../components/analytics/RunningMoney'
+import { RateText, SEAT_LABELS } from '../components/analytics/Sections'
 
 const ordinal = n => {
   const s = ['th', 'st', 'nd', 'rd'], v = n % 100
@@ -98,6 +99,29 @@ export default function PlayerProfile({ a, allTime, pid, ctx, scope, setScope, o
         <Tile label="Longest streaks" value={<><span>🔥{p.hot}</span> <span className="an-muted">/</span> <span>🥶{p.cold}</span></>}
           sub="hot / cold hands in a row" />
       </div>
+
+      {a.seats.players[pid] && (
+        <Card title="By seat" aside={`${a.seats.known} of ${a.seats.total} hands have a recorded dealer`}>
+          <div className="an-scroll">
+            <table className="an-table an-mini">
+              <thead><tr><th>Seat</th><th className="an-r">Picks / chances</th><th className="an-r">Win %</th><th className="an-r">$ / pick</th></tr></thead>
+              <tbody>
+                {[1, 2, 3, 4, 5].map(n => {
+                  const sp = a.seats.players[pid], c = sp.cells[n]
+                  return (
+                    <tr key={n} className={n === sp.best ? 'an-seat-best' : n === sp.worst ? 'an-seat-worst' : ''}>
+                      <td><span className="an-num">{n}</span> <span className="an-muted">· {SEAT_LABELS[n]}</span>{n === sp.best ? ' · best' : n === sp.worst ? ' · worst' : ''}</td>
+                      <td className="an-r an-num">{c ? `${c.picks}/${c.chances}` : <span className="an-muted">—</span>}</td>
+                      <td className="an-r">{c?.picks ? <RateText r={c.winRate} single={single} /> : <span className="an-muted">—</span>}</td>
+                      <td className="an-r">{c?.picks ? <Money value={c.net / c.picks} /> : <span className="an-muted">—</span>}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <div className="an-prof-pair">
         <Card title="Best partner" aside={`min ${MIN_TOGETHER} hands`}>

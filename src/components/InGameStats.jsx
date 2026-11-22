@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import Avatar from './Avatar'
 import { sitOutsOf, isPickHand, isPass, isLeaster } from '../utils/hands'
 import { pairMatrix, pairExtremes, moneyByRole, crackScorecard, allPassCounts, LONER } from '../utils/nightStats'
+import { blitzItems, blitzRecords } from '../lib/analytics'
 
 const usd  = n => { const r = Math.round(n * 100) / 100; return r > 0 ? `+$${r}` : r < 0 ? `-$${Math.abs(r)}` : '$0' }
 const tone = n => (n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text-muted)')
@@ -112,6 +113,7 @@ function computeStats(session, getPlayer) {
   return {
     streaks, pStats, players, biggestHand, comboList, blackBlitzCount, redBlitzCount, doublerCount, crackCount, crackPickerLost, totalHands: hands.length, pickHands, allPass: allPassCounts(hands),
     matrix, extremes: pairExtremes(matrix), roles: moneyByRole(hands, players), cracks: crackScorecard(hands),
+    blitz: blitzRecords(blitzItems(hands)).players,
   }
 }
 
@@ -157,6 +159,7 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
 
   const { streaks, pStats, players, biggestHand, comboList, crackCount, crackPickerLost, blackBlitzCount, redBlitzCount, doublerCount, totalHands, pickHands, allPass, matrix, extremes, roles, cracks } = stats
   const showLeaster = allPass.leasters > 0
+  const blitzers = players.filter(pid => stats.blitz[pid])
   // The sidebar on a TV has room for the grid; a phone gets the same records as a list
   const asGrid = typeof window !== 'undefined' && window.innerWidth >= 1080
   const isBest  = (pk, pt) => extremes.best  && extremes.best.picker  === pk && extremes.best.partner  === pt
@@ -369,6 +372,25 @@ export default function InGameStats({ session, getPlayer, getDisplayName, headin
               </div>
             ))}
             <Fact label="Table" value={`${cracks.total} cracked · ${cracks.worked} worked`} />
+          </div>
+        </Section>
+      )}
+
+      {/* Blitzes tonight: count and blitzer's side won–lost */}
+      {blitzers.length > 0 && (
+        <Section title="Blitzes">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {blitzers.map(pid => {
+              const { black: b, red: r } = stats.blitz[pid]
+              return (
+                <div key={pid} style={{ fontSize: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{dn(pid)}:</span>
+                  {b.count > 0 && <span>⚫ {b.count} <span style={{ color: 'var(--text-muted)' }}>({b.wins}-{b.losses})</span></span>}
+                  {b.count > 0 && r.count > 0 && <span style={{ color: 'var(--text-muted)' }}>·</span>}
+                  {r.count > 0 && <span>🔴 {r.count} <span style={{ color: 'var(--text-muted)' }}>({r.wins}-{r.losses})</span></span>}
+                </div>
+              )
+            })}
           </div>
         </Section>
       )}

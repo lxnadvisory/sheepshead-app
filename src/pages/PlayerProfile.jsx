@@ -1,5 +1,5 @@
 import Avatar from '../components/Avatar'
-import { chasing, nightLabel, MIN_TOGETHER, MIN_PARTNER_HANDS } from '../lib/analytics'
+import { chasing, nightLabel, MIN_TOGETHER, MIN_PARTNER_HANDS, MIN_BLITZES } from '../lib/analytics'
 import { Card, Money, PlayerName, ScopeFilter, StreakBadge, fmtBase, fmtRate, money } from '../components/analytics/ui'
 import RunningMoney from '../components/analytics/RunningMoney'
 import { RateText, SEAT_LABELS } from '../components/analytics/Sections'
@@ -116,6 +116,19 @@ export default function PlayerProfile({ a, allTime, pid, ctx, scope, setScope, o
               sub={p.asPartner.bestPicker
                 ? `${p.asPartner.bestPicker.wins}–${p.asPartner.bestPicker.hands - p.asPartner.bestPicker.wins} · ${Math.round(p.asPartner.bestPicker.pct * 100)}%`
                 : `needs ${MIN_TOGETHER}+ hands with one picker`} />
+          </div>
+        </Card>
+      )}
+
+      {a.blitz.players[pid] && (
+        <Card title="Blitzing" aside={`success % needs ${MIN_BLITZES}+ blitzes`}>
+          <div className="an-tiles">
+            {[['⚫ Black', a.blitz.players[pid].black], ['🔴 Red', a.blitz.players[pid].red]].map(([label, r]) => (
+              <Tile key={label} label={`${label} blitzes`} value={r.count}
+                sub={r.count
+                  ? <>rate <RateText r={r.rate} single={single} /> · success <RateText r={r.success} single={single} /> ({r.wins}–{r.losses}) · {money(r.net)}</>
+                  : 'none yet'} />
+            ))}
           </div>
         </Card>
       )}

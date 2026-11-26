@@ -551,7 +551,7 @@ export async function getNightShare(token) {
 
   const pids = [...new Set(sessions.flatMap(s => s.players))]
   const { data: playerRows, error: playersError } = pids.length
-    ? await supabase.from('players').select('id, first_name, last_name').in('id', pids)
+    ? await supabase.from('players_public').select('id, first_name, last_name').in('id', pids)
     : { data: [], error: null }
   if (playersError) throw playersError
 
@@ -567,7 +567,7 @@ export async function getNightShare(token) {
 async function selectAll(table) {
   const rows = []
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from(table).select('*').range(from, from + 999)
+    const { data, error } = await supabase.from(table).select('*').order('id').range(from, from + 999)
     if (error) throw error
     rows.push(...(data || []))
     if (!data || data.length < 1000) return rows
@@ -579,7 +579,8 @@ async function selectAll(table) {
  * SELECT only — the analytics page never writes.
  */
 export async function getAnalyticsRows() {
-  const [players, sessions, hands] = await Promise.all(['players', 'sessions', 'hands'].map(selectAll))
+  // players_public = names and photos only, readable by the public /stats page
+  const [players, sessions, hands] = await Promise.all(['players_public', 'sessions', 'hands'].map(selectAll))
   return { players, sessions, hands }
 }
 

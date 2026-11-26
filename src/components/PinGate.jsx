@@ -1,42 +1,68 @@
 import { useState, useRef, useEffect } from 'react'
+import { supabase } from '../supabase.js'
 
-const PIN           = import.meta.env.VITE_APP_PIN
-const STORAGE_KEY   = 'shed_pin_verified'
-const EXPIRY_MS     = 24 * 60 * 60 * 1000
+// The PIN is checked by Supabase, not in the browser: it is the password of one
+// shared "Shed" account, and the database only lets that account see players'
+// phone/email/venmo or change anything. Nothing secret ships in the bundle.
+const SHED_EMAIL  = 'shed@lxnadvisory.com'
+const toPassword  = pin => `shed-pin-${pin}`   // Supabase needs 6+ chars; PINs are 4–6 digits
+const STORAGE_KEY = 'shed_pin_verified'
+const EXPIRY_MS   = 24 * 60 * 60 * 1000
 
-function isVerified() {
-  if (!PIN) return true
+function recentlyUnlocked() {
   try {
     const ts = Number(localStorage.getItem(STORAGE_KEY))
-    return ts && Date.now() - ts < EXPIRY_MS
+    return Boolean(ts && Date.now() - ts < EXPIRY_MS)
   } catch {
     return false
   }
 }
 
 export default function PinGate({ children }) {
-  const [unlocked, setUnlocked] = useState(isVerified)
+  // null = still checking for an existing session
+  const [unlocked, setUnlocked] = useState(supabase ? null : true)
   const [input, setInput]       = useState('')
-  const [error, setError]       = useState(false)
+  const [error, setError]       = useState('')
   const [shake, setShake]       = useState(false)
+  const [busy, setBusy]         = useState(false)
   const inputRef                = useRef(null)
 
   useEffect(() => {
-    if (!unlocked) inputRef.current?.focus()
+    if (!supabase) return
+    let cancelled = false
+    supabase.auth.getSession().then(async ({ data }) => {
+      const ok = Boolean(data?.session) && recentlyUnlocked()
+      if (!ok && data?.session) await supabase.auth.signOut()   // older than 24h: ask again
+      if (!cancelled) setUnlocked(ok)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (unlocked === false) inputRef.current?.focus()
   }, [unlocked])
 
+  if (unlocked === null) return <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }} />
   if (unlocked) return children
 
-  const submit = () => {
-    if (input === PIN) {
-      localStorage.setItem(STORAGE_KEY, String(Date.now()))
+  const submit = async () => {
+    if (busy || input.length < 4) return
+    setBusy(true)
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: SHED_EMAIL,
+      password: toPassword(input),
+    })
+    setBusy(false)
+    if (!authError) {
+      try { localStorage.setItem(STORAGE_KEY, String(Date.now())) } catch { /* private mode */ }
       setUnlocked(true)
-    } else {
-      setError(true)
-      setShake(true)
-      setInput('')
-      inputRef.current?.focus()
+      return
     }
+    const tooMany = /rate|too many/i.test(authError.message || '')
+    setError(tooMany ? 'Too many tries — wait a minute' : 'Wrong PIN')
+    setShake(true)
+    setInput('')
+    inputRef.current?.focus()
   }
 
   return (
@@ -67,7 +93,7 @@ export default function PinGate({ children }) {
           maxLength={6}
           value={input}
           onChange={e => {
-            setError(false)
+            setError('')
             setInput(e.target.value.replace(/\D/g, ''))
           }}
           onKeyDown={e => e.key === 'Enter' && submit()}
@@ -91,16 +117,17 @@ export default function PinGate({ children }) {
 
         {error && (
           <div style={{ fontSize: 13, color: 'var(--danger)', fontWeight: 600 }}>
-            Wrong PIN
+            {error}
           </div>
         )}
 
         <button
           className="btn btn-primary"
           onClick={submit}
+          disabled={busy}
           style={{ width: '100%', padding: '12px 0', fontSize: 15, fontWeight: 700 }}
         >
-          Enter
+          {busy ? 'Checking…' : 'Enter'}
         </button>
       </div>
 
